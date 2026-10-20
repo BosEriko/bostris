@@ -1,6 +1,6 @@
 # bostris
 
-bostris is a falling-block puzzle game that runs entirely inside the terminal. It is made for players who want a quick, responsive game without leaving the command line, and for those who want to sharpen their technique.
+bostris is a falling-block puzzle game that runs entirely inside the terminal. It is made for players who want a quick, responsive game without leaving the command line, for those who want to sharpen their technique, and for anyone looking for a challenge against a computer opponent.
 
 ---
 
@@ -11,8 +11,16 @@ bostris is a falling-block puzzle game that runs entirely inside the terminal. I
 - Plan ahead with a queue of up to six upcoming pieces and a hold slot
 - See exactly where a piece will land with the ghost piece
 - Soft drop or hard drop pieces into place
-- Earn more for multi-line clears, back-to-back Tetrises and combos
+- Earn more for multi-line clears, T-spins, back-to-back clears, combos and perfect clears
 - Face faster gravity as the level rises every ten lines
+
+## Versus AI
+
+- Battle a computer opponent that plays by the same rules and the same pieces as you
+- Choose from seven difficulty levels, from a relaxed D up to a blistering X
+- Send garbage lines to your opponent with strong clears, and cancel incoming garbage by clearing first
+- Watch incoming attacks build up in a meter beside your board
+- Be the last one standing to win the match
 
 ## Practise and improve
 
