@@ -7,6 +7,7 @@ pub enum Kind {
     Z,
     J,
     L,
+    Garbage,
 }
 
 impl Kind {
@@ -22,7 +23,7 @@ impl Kind {
 
     fn box_size(self) -> i8 {
         match self {
-            Kind::I | Kind::O => 4,
+            Kind::I | Kind::O | Kind::Garbage => 4,
             _ => 3,
         }
     }
@@ -30,7 +31,7 @@ impl Kind {
     fn spawn_cells(self) -> [(i8, i8); 4] {
         match self {
             Kind::I => [(0, 2), (1, 2), (2, 2), (3, 2)],
-            Kind::O => [(1, 1), (2, 1), (1, 2), (2, 2)],
+            Kind::O | Kind::Garbage => [(1, 1), (2, 1), (1, 2), (2, 2)],
             Kind::T => [(1, 2), (0, 1), (1, 1), (2, 1)],
             Kind::S => [(1, 2), (2, 2), (0, 1), (1, 1)],
             Kind::Z => [(0, 2), (1, 2), (1, 1), (2, 1)],
@@ -114,14 +115,14 @@ const KICKS_180: [[(i8, i8); 6]; 4] = [
 
 pub fn kicks_180(kind: Kind, from: Rotation) -> &'static [(i8, i8)] {
     match kind {
-        Kind::O => &[(0, 0)],
+        Kind::O | Kind::Garbage => &[(0, 0)],
         _ => &KICKS_180[from as usize],
     }
 }
 
 pub fn kicks(kind: Kind, from: Rotation, to: Rotation) -> Kicks {
     match kind {
-        Kind::O => [(0, 0); 5],
+        Kind::O | Kind::Garbage => [(0, 0); 5],
         Kind::I => {
             if to == from.cw() {
                 I_KICKS_CW[from as usize]

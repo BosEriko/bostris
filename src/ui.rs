@@ -8,14 +8,17 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, BorderType, Borders, Widget};
 
 use crate::board::{VISIBLE_HEIGHT, WIDTH};
+use crate::bot::Level;
 use crate::config::ColorMode;
 use crate::game::{Game, ToastEvent};
 use crate::highscores::HighScores;
 use crate::input::{Action, Keymap, key_label};
 use crate::piece::{Kind, Piece, Rotation};
+use crate::scoring::Spin;
 use crate::settings::{Capture, Field, ITEMS, Item, SettingsMenu};
 
 const SIDE_WIDTH: [u16; 2] = [18, 20];
+const VERSUS_SIDE_WIDTH: [u16; 2] = [12, 20];
 const HELP_WIDTH: u16 = 24;
 const GAP: u16 = 2;
 
@@ -25,7 +28,20 @@ pub enum Screen {
     Playing,
     Paused,
     GameOver { rank: Option<usize> },
+    VersusOver { won: bool },
     Settings,
+}
+
+#[derive(Clone, Copy)]
+pub struct Versus<'a> {
+    pub opponent: &'a Game,
+    pub level: Level,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Title {
+    pub selected: usize,
+    pub level: Level,
 }
 
 pub struct View<'a> {
@@ -36,6 +52,8 @@ pub struct View<'a> {
     pub preview_count: usize,
     pub menu: Option<&'a SettingsMenu>,
     pub key_releases: bool,
+    pub versus: Option<Versus<'a>>,
+    pub title: Title,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,6 +158,7 @@ impl Theme {
                 Kind::Z => Color::Rgb(238, 90, 90),
                 Kind::J => Color::Rgb(74, 124, 240),
                 Kind::L => Color::Rgb(245, 155, 60),
+                Kind::Garbage => Color::Rgb(92, 96, 110),
             },
             Palette::Ansi256 => Color::Indexed(match kind {
                 Kind::I => 44,
@@ -149,6 +168,7 @@ impl Theme {
                 Kind::Z => 203,
                 Kind::J => 69,
                 Kind::L => 208,
+                Kind::Garbage => 242,
             }),
             Palette::Ansi16 => match kind {
                 Kind::I => Color::Cyan,
@@ -158,6 +178,7 @@ impl Theme {
                 Kind::Z => Color::Red,
                 Kind::J => Color::Blue,
                 Kind::L => Color::LightRed,
+                Kind::Garbage => Color::DarkGray,
             },
         }
     }
@@ -171,11 +192,18 @@ impl Theme {
     }
 }
 
-struct Layout {
+struct Panel {
     scale: u16,
     board: Rect,
     left: Rect,
     right: Rect,
+    meter: Option<Rect>,
+    label: Option<Rect>,
+}
+
+struct Layout {
+    player: Panel,
+    opponent: Option<Panel>,
     help: Option<Rect>,
     title: Option<Rect>,
 }
@@ -187,12 +215,17 @@ fn board_size(scale: u16) -> (u16, u16) {
     )
 }
 
-pub fn min_size() -> (u16, u16) {
+pub fn min_size(versus: bool) -> (u16, u16) {
     let (board_w, board_h) = board_size(1);
-    (board_w + 2 * (SIDE_WIDTH[0] + GAP), board_h)
+    if versus {
+        let side = VERSUS_SIDE_WIDTH[0];
+        (side + 2 * board_w + 6 + side, board_h + 1)
+    } else {
+        (board_w + 2 * (SIDE_WIDTH[0] + GAP), board_h)
+    }
 }
 
-fn compute_layout(area: Rect) -> Option<Layout> {
+fn single_layout(area: Rect) -> Option<Layout> {
     for scale in [2u16, 1] {
         for with_help in [true, false] {
             let side = SIDE_WIDTH[scale as usize - 1];
@@ -212,10 +245,15 @@ fn compute_layout(area: Rect) -> Option<Layout> {
             let help = with_help.then(|| Rect::new(right.right() + GAP, y, HELP_WIDTH, board_h));
             let title = with_title.then(|| Rect::new(board.x, y - 1, board_w, 1));
             return Some(Layout {
-                scale,
-                board,
-                left,
-                right,
+                player: Panel {
+                    scale,
+                    board,
+                    left,
+                    right,
+                    meter: None,
+                    label: None,
+                },
+                opponent: None,
                 help,
                 title,
             });
@@ -224,8 +262,61 @@ fn compute_layout(area: Rect) -> Option<Layout> {
     None
 }
 
-pub fn fits(width: u16, height: u16) -> bool {
-    compute_layout(Rect::new(0, 0, width, height)).is_some()
+fn versus_panel(x: u16, y: u16, scale: u16, side: u16, compact: bool) -> Panel {
+    let (board_w, board_h) = board_size(scale);
+    let side = if compact { 0 } else { side };
+    let left = Rect::new(x, y, side, board_h);
+    let meter_x = if compact { x } else { left.right() + 1 };
+    let meter = Rect::new(meter_x, y, 1, board_h);
+    let board = Rect::new(meter.right(), y, board_w, board_h);
+    let right = Rect::new(board.right() + u16::from(!compact), y, side, board_h);
+    Panel {
+        scale,
+        board,
+        left,
+        right,
+        meter: Some(meter),
+        label: Some(Rect::new(board.x, y - 1, board_w, 1)),
+    }
+}
+
+fn versus_layout(area: Rect) -> Option<Layout> {
+    for scale in [2u16, 1] {
+        for compact in [false, true] {
+            let side = VERSUS_SIDE_WIDTH[scale as usize - 1];
+            let (board_w, board_h) = board_size(scale);
+            let player_w = side + 1 + 1 + board_w + 1 + side;
+            let opponent_w = if compact { 1 + board_w } else { player_w };
+            let total_w = player_w + GAP + opponent_w;
+            let total_h = board_h + 1;
+            if total_w > area.width || total_h > area.height {
+                continue;
+            }
+            let x = area.x + (area.width - total_w) / 2;
+            let y = area.y + (area.height - total_h) / 2 + 1;
+            let player = versus_panel(x, y, scale, side, false);
+            let opponent = versus_panel(x + player_w + GAP, y, scale, side, compact);
+            return Some(Layout {
+                player,
+                opponent: Some(opponent),
+                help: None,
+                title: None,
+            });
+        }
+    }
+    None
+}
+
+fn compute_layout(area: Rect, versus: bool) -> Option<Layout> {
+    if versus {
+        versus_layout(area)
+    } else {
+        single_layout(area)
+    }
+}
+
+pub fn fits(width: u16, height: u16, versus: bool) -> bool {
+    compute_layout(Rect::new(0, 0, width, height), versus).is_some()
 }
 
 pub struct Renderer {
@@ -263,8 +354,9 @@ impl Renderer {
             self.render_settings(buf, area, menu, view.key_releases);
             return;
         }
-        let Some(layout) = compute_layout(area) else {
-            self.render_too_small(buf, area);
+        let versus = view.versus.filter(|_| view.screen != Screen::Ready);
+        let Some(layout) = compute_layout(area, versus.is_some()) else {
+            self.render_too_small(buf, area, versus.is_some());
             return;
         };
         if let Some(title) = layout.title {
@@ -273,22 +365,85 @@ impl Renderer {
                 .add_modifier(Modifier::BOLD);
             center(buf, title, title.y, "B O S T R I S", style);
         }
-        self.render_board(buf, &layout, view);
-        self.render_left(buf, &layout, view);
-        self.render_right(buf, &layout, view);
+        let player = &layout.player;
+        self.render_board(buf, player, view, view.game, view.ghost);
+        self.render_left(buf, player, view, view.game);
+        self.render_right(buf, player, view, view.game);
+        if let Some(versus) = versus {
+            self.render_meter(buf, player, view.game);
+            self.render_label(buf, player, "YOU", None);
+            if let Some(panel) = &layout.opponent {
+                let opponent = versus.opponent;
+                self.render_board(buf, panel, view, opponent, false);
+                self.render_meter(buf, panel, opponent);
+                if panel.left.width > 0 {
+                    self.render_left(buf, panel, view, opponent);
+                    self.render_right(buf, panel, view, opponent);
+                    self.render_label(buf, panel, "BOT", Some(versus.level));
+                } else {
+                    self.render_label(buf, panel, "BOT", Some(versus.level));
+                }
+            }
+        }
         if let Some(help) = layout.help {
             self.render_help(buf, help);
         }
         match view.screen {
             Screen::Playing | Screen::Settings => {}
-            Screen::Ready => self.render_ready(buf, &layout, view),
-            Screen::Paused => self.render_paused(buf, &layout),
-            Screen::GameOver { rank } => self.render_game_over(buf, &layout, view, rank),
+            Screen::Ready => self.render_ready(buf, player, view),
+            Screen::Paused => self.render_paused(buf, player),
+            Screen::GameOver { rank } => self.render_game_over(buf, player, view, rank),
+            Screen::VersusOver { won } => {
+                if let Some(versus) = versus {
+                    self.render_versus_over(buf, player, view.game, versus, won);
+                }
+            }
         }
     }
 
-    fn render_too_small(&mut self, buf: &mut Buffer, area: Rect) {
-        let (min_w, min_h) = min_size();
+    fn render_label(&mut self, buf: &mut Buffer, panel: &Panel, name: &str, level: Option<Level>) {
+        let Some(rect) = panel.label else {
+            return;
+        };
+        self.scratch.clear();
+        self.scratch.push_str(name);
+        if let Some(level) = level {
+            self.scratch.push_str(" · ");
+            self.scratch.push_str(level.name());
+        }
+        let style = Style::new()
+            .fg(self.theme.accent)
+            .add_modifier(Modifier::BOLD);
+        center(buf, rect, rect.y, &self.scratch, style);
+    }
+
+    fn render_meter(&self, buf: &mut Buffer, panel: &Panel, game: &Game) {
+        let Some(rect) = panel.meter else {
+            return;
+        };
+        let inner_top = rect.y + 1;
+        let inner_height = rect.height.saturating_sub(2);
+        let (ready, total) = game.pending_garbage();
+        let s = panel.scale;
+        let ready_cells = (ready as u16 * s).min(inner_height);
+        let total_cells = (total as u16 * s).min(inner_height);
+        for i in 0..inner_height {
+            let y = inner_top + inner_height - 1 - i;
+            let (symbol, style) = if i < ready_cells {
+                ("█", Style::new().fg(self.theme.warn))
+            } else if i < total_cells {
+                ("▓", Style::new().fg(self.theme.label))
+            } else {
+                ("│", Style::new().fg(self.theme.grid))
+            };
+            if let Some(cell) = buf.cell_mut((rect.x, y)) {
+                cell.set_symbol(symbol).set_style(style);
+            }
+        }
+    }
+
+    fn render_too_small(&mut self, buf: &mut Buffer, area: Rect, versus: bool) {
+        let (min_w, min_h) = min_size(versus);
         let y = area.y + area.height / 2;
         let title = Style::new()
             .fg(self.theme.accent)
@@ -316,7 +471,7 @@ impl Renderer {
     fn fill_cell(
         &self,
         buf: &mut Buffer,
-        layout: &Layout,
+        layout: &Panel,
         x: u16,
         y: u16,
         symbol: &str,
@@ -332,7 +487,7 @@ impl Renderer {
         }
     }
 
-    fn board_cell_origin(layout: &Layout, x: i8, y: i8) -> Option<(u16, u16)> {
+    fn board_cell_origin(layout: &Panel, x: i8, y: i8) -> Option<(u16, u16)> {
         if x < 0 || y < 0 || x as usize >= WIDTH || y as usize >= VISIBLE_HEIGHT {
             return None;
         }
@@ -345,10 +500,16 @@ impl Renderer {
         ))
     }
 
-    fn render_board(&self, buf: &mut Buffer, layout: &Layout, view: &View) {
+    fn render_board(
+        &self,
+        buf: &mut Buffer,
+        layout: &Panel,
+        view: &View,
+        game: &Game,
+        ghost: bool,
+    ) {
         let theme = &self.theme;
         theme.block("").render(layout.board, buf);
-        let game = view.game;
         let hidden = matches!(view.screen, Screen::Paused);
         let empty = Style::new().bg(theme.board_bg).fg(theme.grid);
         let clearing = game.line_clear_progress();
@@ -390,9 +551,7 @@ impl Renderer {
         if hidden || matches!(view.screen, Screen::Ready) {
             return;
         }
-        if view.ghost
-            && let Some(ghost) = game.ghost()
-        {
+        if ghost && let Some(ghost) = game.ghost() {
             let style = Style::new().bg(theme.board_bg).fg(theme.piece(ghost.kind));
             for (x, y) in ghost.cells() {
                 if let Some((cx, cy)) = Self::board_cell_origin(layout, x, y) {
@@ -413,7 +572,7 @@ impl Renderer {
     fn render_preview(
         &self,
         buf: &mut Buffer,
-        layout: &Layout,
+        layout: &Panel,
         inner: Rect,
         y: u16,
         kind: Kind,
@@ -449,14 +608,14 @@ impl Renderer {
         }
     }
 
-    fn render_left(&mut self, buf: &mut Buffer, layout: &Layout, view: &View) {
+    fn render_left(&mut self, buf: &mut Buffer, layout: &Panel, view: &View, game: &Game) {
         let s = layout.scale;
         let left = layout.left;
         let hold_rect = Rect::new(left.x, left.y, left.width, 2 * s + 4);
         let hold_block = self.theme.block(" HOLD ");
         let hold_inner = hold_block.inner(hold_rect);
         hold_block.render(hold_rect, buf);
-        if let Some(kind) = view.game.hold_piece()
+        if let Some(kind) = game.hold_piece()
             && view.screen != Screen::Paused
         {
             self.render_preview(
@@ -465,31 +624,47 @@ impl Renderer {
                 hold_inner,
                 hold_inner.y + 1,
                 kind,
-                !view.game.can_hold(),
+                !game.can_hold(),
             );
         }
 
-        let stats_rect = Rect::new(left.x, hold_rect.bottom(), left.width, 10);
+        let scoring = game.scoring();
+        let elapsed = game.elapsed().as_secs();
+        let versus = view.versus.is_some() && view.screen != Screen::Ready;
+        let rows: &[(&str, Stat)] = if versus {
+            let (apm, pps) = rates(game);
+            &[
+                ("APM", Stat::Decimal(apm, 1)),
+                ("PPS", Stat::Decimal(pps, 2)),
+                ("Sent", Stat::Number(u64::from(game.attack_total()))),
+                ("Lines", Stat::Number(u64::from(scoring.lines))),
+                ("Time", Stat::Time(elapsed)),
+            ]
+        } else {
+            let best = view.scores.best().max(scoring.score);
+            let finesse = game.finesse();
+            &[
+                ("Score", Stat::Number(scoring.score)),
+                ("Best", Stat::Number(best)),
+                ("Level", Stat::Number(u64::from(scoring.level()))),
+                ("Lines", Stat::Number(u64::from(scoring.lines))),
+                ("Time", Stat::Time(elapsed)),
+                ("Pieces", Stat::Number(u64::from(game.pieces_placed()))),
+                ("Finesse", Stat::Percent(finesse.accuracy())),
+                ("Faults", Stat::Number(u64::from(finesse.faults))),
+            ]
+        };
+        let stats_rect = Rect::new(
+            left.x,
+            hold_rect.bottom(),
+            left.width,
+            rows.len() as u16 + 2,
+        );
         let stats_block = self.theme.block(" STATS ");
         let inner = stats_block.inner(stats_rect);
         stats_block.render(stats_rect, buf);
-        let scoring = view.game.scoring();
-        let elapsed = view.game.elapsed().as_secs();
-        let best = view.scores.best().max(scoring.score);
-        let finesse = view.game.finesse();
-        let rows: [(&str, Stat); 8] = [
-            ("Score", Stat::Number(scoring.score)),
-            ("Best", Stat::Number(best)),
-            ("Level", Stat::Number(u64::from(scoring.level()))),
-            ("Lines", Stat::Number(u64::from(scoring.lines))),
-            ("Time", Stat::Time(elapsed)),
-            ("Pieces", Stat::Number(u64::from(view.game.pieces_placed()))),
-            ("Finesse", Stat::Percent(finesse.accuracy())),
-            ("Faults", Stat::Number(u64::from(finesse.faults))),
-        ];
-        for (i, (label, stat)) in rows.into_iter().enumerate() {
+        for (i, &(label, stat)) in rows.iter().enumerate() {
             let y = inner.y + i as u16;
-            buf.set_string(inner.x + 1, y, label, Style::new().fg(self.theme.label));
             self.scratch.clear();
             match stat {
                 Stat::Number(n) => write_grouped(&mut self.scratch, n),
@@ -501,17 +676,26 @@ impl Renderer {
                 Stat::Percent(Some(p)) => {
                     let _ = write!(self.scratch, "{p:.1}%");
                 }
+                Stat::Decimal(value, precision) => {
+                    let _ = write!(self.scratch, "{value:.precision$}");
+                }
             }
-            let x = inner
-                .right()
-                .saturating_sub(self.scratch.chars().count() as u16 + 1);
+            let value_len = self.scratch.chars().count() as u16;
+            let margin = u16::from(label.len() as u16 + value_len + 3 <= inner.width);
+            buf.set_string(
+                inner.x + margin,
+                y,
+                label,
+                Style::new().fg(self.theme.label),
+            );
+            let x = inner.right().saturating_sub(value_len + margin);
             let style = Style::new()
                 .fg(self.theme.value)
                 .add_modifier(Modifier::BOLD);
             buf.set_string(x, y, &self.scratch, style);
         }
 
-        let Some(toast) = view.game.toast() else {
+        let Some(toast) = game.toast() else {
             return;
         };
         let area = Rect::new(
@@ -530,7 +714,12 @@ impl Renderer {
                     .fg(self.theme.warn)
                     .add_modifier(Modifier::BOLD);
                 let label = Style::new().fg(self.theme.label);
-                center(buf, area, area.y, "FINESSE FAULT", warn);
+                let title = if area.width >= 13 {
+                    "FINESSE FAULT"
+                } else {
+                    "FAULT"
+                };
+                center(buf, area, area.y, title, warn);
                 self.scratch.clear();
                 let _ = write!(
                     self.scratch,
@@ -545,6 +734,7 @@ impl Renderer {
             }
         };
         let name = match event.lines {
+            0 => "",
             1 => "SINGLE",
             2 => "DOUBLE",
             3 => "TRIPLE",
@@ -564,9 +754,23 @@ impl Renderer {
             );
             y += 1;
         }
-        if y < area.bottom() {
-            center(buf, area, y, name, headline);
-            y += 1;
+        let spin = match event.spin {
+            Spin::None => None,
+            Spin::Mini => Some("T-SPIN MINI"),
+            Spin::Full => Some("T-SPIN"),
+        };
+        for text in [
+            spin,
+            (!name.is_empty()).then_some(name),
+            event.perfect.then_some("ALL CLEAR"),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if y < area.bottom() {
+                center(buf, area, y, text, headline);
+                y += 1;
+            }
         }
         if event.combo > 0 && y < area.bottom() {
             self.scratch.clear();
@@ -583,7 +787,13 @@ impl Renderer {
         if y < area.bottom() {
             self.scratch.clear();
             self.scratch.push('+');
-            write_grouped(&mut self.scratch, event.points);
+            if versus {
+                write_grouped(&mut self.scratch, u64::from(event.attack));
+                self.scratch
+                    .push_str(if event.attack == 1 { " line" } else { " lines" });
+            } else {
+                write_grouped(&mut self.scratch, event.points);
+            }
             center(
                 buf,
                 area,
@@ -594,7 +804,7 @@ impl Renderer {
         }
     }
 
-    fn render_right(&self, buf: &mut Buffer, layout: &Layout, view: &View) {
+    fn render_right(&self, buf: &mut Buffer, layout: &Panel, view: &View, game: &Game) {
         if view.preview_count == 0 {
             return;
         }
@@ -608,7 +818,7 @@ impl Renderer {
         if view.screen == Screen::Paused {
             return;
         }
-        for (i, kind) in view.game.preview().take(view.preview_count).enumerate() {
+        for (i, kind) in game.preview().take(view.preview_count).enumerate() {
             let y = inner.y + 1 + i as u16 * slot;
             if y + 2 * s > inner.bottom() {
                 break;
@@ -653,7 +863,7 @@ impl Renderer {
         }
     }
 
-    fn overlay(&self, buf: &mut Buffer, layout: &Layout, lines: u16) -> Rect {
+    fn overlay(&self, buf: &mut Buffer, layout: &Panel, lines: u16) -> Rect {
         let board = layout.board;
         let height = (lines + 2).min(board.height.saturating_sub(2));
         let rect = Rect::new(
@@ -700,34 +910,120 @@ impl Renderer {
         );
     }
 
-    fn render_ready(&mut self, buf: &mut Buffer, layout: &Layout, view: &View) {
-        let inner = self.overlay(buf, layout, 8);
-        let title = Style::new()
+    fn render_ready(&mut self, buf: &mut Buffer, layout: &Panel, view: &View) {
+        let best = view.scores.best();
+        let inner = self.overlay(buf, layout, if best > 0 { 13 } else { 11 });
+        let accent = Style::new()
             .fg(self.theme.accent)
             .add_modifier(Modifier::BOLD);
-        center(buf, inner, inner.y, "BOSTRIS", title);
-        if view.scores.best() > 0 {
+        let value = Style::new()
+            .fg(self.theme.value)
+            .add_modifier(Modifier::BOLD);
+        let label = Style::new().fg(self.theme.label);
+        let mut y = inner.y;
+        center(buf, inner, y, "BOSTRIS", accent);
+        y += 2;
+        let title = view.title;
+        for (index, text) in ["Marathon", "Versus AI"].into_iter().enumerate() {
+            let selected = title.selected == index;
             self.scratch.clear();
-            self.scratch.push_str("Best ");
-            write_grouped(&mut self.scratch, view.scores.best());
+            self.scratch.push_str(if selected { "› " } else { "  " });
+            self.scratch.push_str(text);
+            if index == 1 {
+                let _ = write!(self.scratch, "  ‹{:^4}›", title.level.name());
+            } else {
+                self.scratch.push_str("         ");
+            }
             center(
                 buf,
                 inner,
-                inner.y + 2,
+                y,
                 &self.scratch,
-                Style::new().fg(self.theme.value),
+                if selected { value } else { label },
             );
+            y += 1;
         }
-        let prompt = Style::new()
-            .fg(self.theme.value)
-            .add_modifier(Modifier::BOLD);
-        center(buf, inner, inner.y + 4, "Press any key", prompt);
-        self.render_key_line(buf, inner, inner.y + 6, Action::Settings, "Settings");
-        self.render_key_line(buf, inner, inner.y + 7, Action::Quit, "Quit");
+        y += 1;
+        if best > 0 {
+            self.scratch.clear();
+            self.scratch.push_str("Best ");
+            write_grouped(&mut self.scratch, best);
+            center(buf, inner, y, &self.scratch, label);
+            y += 2;
+        }
+        center(buf, inner, y, "↑↓ Mode  ←→ Level", label);
+        center(buf, inner, y + 1, "Enter  Start", value);
+        self.render_key_line(buf, inner, y + 3, Action::Settings, "Settings");
+        self.render_key_line(buf, inner, y + 4, Action::Quit, "Quit");
     }
 
-    fn render_paused(&mut self, buf: &mut Buffer, layout: &Layout) {
-        let inner = self.overlay(buf, layout, 8);
+    fn render_versus_over(
+        &mut self,
+        buf: &mut Buffer,
+        layout: &Panel,
+        player: &Game,
+        versus: Versus,
+        won: bool,
+    ) {
+        let inner = self.overlay(buf, layout, 12);
+        let accent = Style::new()
+            .fg(self.theme.accent)
+            .add_modifier(Modifier::BOLD);
+        let warn = Style::new()
+            .fg(self.theme.warn)
+            .add_modifier(Modifier::BOLD);
+        let value = Style::new().fg(self.theme.value);
+        let label = Style::new().fg(self.theme.label);
+        let mut y = inner.y;
+        center(
+            buf,
+            inner,
+            y,
+            if won { "YOU WIN" } else { "YOU LOSE" },
+            if won { accent } else { warn },
+        );
+        y += 1;
+        self.scratch.clear();
+        let _ = write!(self.scratch, "vs BOT {}", versus.level.name());
+        center(buf, inner, y, &self.scratch, label);
+        y += 2;
+        center(buf, inner, y, "      YOU    BOT", label);
+        y += 1;
+        let (player_apm, player_pps) = rates(player);
+        let (bot_apm, bot_pps) = rates(versus.opponent);
+        let rows = [
+            (
+                "APM",
+                format_args!("{player_apm:>6.1} {bot_apm:>6.1}").to_string(),
+            ),
+            (
+                "PPS",
+                format_args!("{player_pps:>6.2} {bot_pps:>6.2}").to_string(),
+            ),
+            (
+                "Sent",
+                format_args!(
+                    "{:>6} {:>6}",
+                    player.attack_total(),
+                    versus.opponent.attack_total()
+                )
+                .to_string(),
+            ),
+        ];
+        for (name, values) in rows {
+            self.scratch.clear();
+            let _ = write!(self.scratch, "{name:<4} {values}");
+            center(buf, inner, y, &self.scratch, value);
+            y += 1;
+        }
+        y += 1;
+        self.render_key_line(buf, inner, y, Action::Restart, "Rematch");
+        self.render_key_line(buf, inner, y + 1, Action::Pause, "Menu");
+        self.render_key_line(buf, inner, y + 2, Action::Quit, "Quit");
+    }
+
+    fn render_paused(&mut self, buf: &mut Buffer, layout: &Panel) {
+        let inner = self.overlay(buf, layout, 9);
         let title = Style::new()
             .fg(self.theme.accent)
             .add_modifier(Modifier::BOLD);
@@ -736,12 +1032,19 @@ impl Renderer {
         self.render_key_line(buf, inner, inner.y + 4, Action::Restart, "Restart");
         self.render_key_line(buf, inner, inner.y + 5, Action::Settings, "Settings");
         self.render_key_line(buf, inner, inner.y + 6, Action::Quit, "Quit");
+        center(
+            buf,
+            inner,
+            inner.y + 7,
+            "Bksp  Menu",
+            Style::new().fg(self.theme.label),
+        );
     }
 
     fn render_game_over(
         &mut self,
         buf: &mut Buffer,
-        layout: &Layout,
+        layout: &Panel,
         view: &View,
         rank: Option<usize>,
     ) {
@@ -802,7 +1105,7 @@ impl Renderer {
             y += 1;
         }
         self.render_key_line(buf, inner, y, Action::Restart, "Play again");
-        self.render_key_line(buf, inner, y + 1, Action::Settings, "Settings");
+        self.render_key_line(buf, inner, y + 1, Action::Pause, "Menu");
         self.render_key_line(buf, inner, y + 2, Action::Quit, "Quit");
     }
 
@@ -997,10 +1300,23 @@ fn key_of(keys: &[String; Action::ALL.len()], action: Action) -> &str {
     &keys[index]
 }
 
+#[derive(Clone, Copy)]
 enum Stat {
     Number(u64),
     Time(u64),
     Percent(Option<f32>),
+    Decimal(f64, usize),
+}
+
+fn rates(game: &Game) -> (f64, f64) {
+    let seconds = game.elapsed().as_secs_f64();
+    if seconds < 1.0 {
+        return (0.0, 0.0);
+    }
+    (
+        f64::from(game.attack_total()) * 60.0 / seconds,
+        f64::from(game.pieces_placed()) / seconds,
+    )
 }
 
 fn center(buf: &mut Buffer, area: Rect, y: u16, text: &str, style: Style) {
@@ -1057,14 +1373,29 @@ mod tests {
 
     #[test]
     fn layout_scales_with_terminal() {
-        let (w, h) = min_size();
-        assert!(fits(w, h));
-        assert!(!fits(w - 1, h));
-        assert!(!fits(w, h - 1));
-        assert_eq!(compute_layout(Rect::new(0, 0, 200, 60)).unwrap().scale, 2);
-        let layout = compute_layout(Rect::new(0, 0, w, h)).unwrap();
-        assert_eq!(layout.scale, 1);
+        let (w, h) = min_size(false);
+        assert!(fits(w, h, false));
+        assert!(!fits(w - 1, h, false));
+        assert!(!fits(w, h - 1, false));
+        let big = compute_layout(Rect::new(0, 0, 200, 60), false).unwrap();
+        assert_eq!(big.player.scale, 2);
+        let layout = compute_layout(Rect::new(0, 0, w, h), false).unwrap();
+        assert_eq!(layout.player.scale, 1);
         assert!(layout.help.is_none());
+    }
+
+    #[test]
+    fn versus_layout_fits_two_boards() {
+        let (w, h) = min_size(true);
+        assert!(fits(w, h, true));
+        assert!(!fits(w - 1, h, true));
+        let compact = compute_layout(Rect::new(0, 0, w, h), true).unwrap();
+        let opponent = compact.opponent.unwrap();
+        assert_eq!(opponent.left.width, 0);
+        assert!(opponent.board.x > compact.player.right.right());
+        let full = compute_layout(Rect::new(0, 0, 100, 24), true).unwrap();
+        assert!(full.opponent.unwrap().left.width > 0);
+        assert!(full.player.board.right() <= 100);
     }
 
     #[test]
@@ -1073,27 +1404,50 @@ mod tests {
         let scores = HighScores::default();
         let mut renderer = Renderer::new(ColorMode::TrueColor, &Keymap::defaults());
         let menu = SettingsMenu::new(crate::config::Config::default());
-        for (w, h) in [(20, 5), (62, 22), (90, 30), (120, 50)] {
+        let opponent = Game::new(Settings::default(), Rng::new(6));
+        for (w, h) in [
+            (20, 5),
+            (62, 22),
+            (76, 23),
+            (90, 30),
+            (100, 24),
+            (120, 50),
+            (200, 50),
+        ] {
             let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
             for screen in [
                 Screen::Ready,
                 Screen::Playing,
                 Screen::Paused,
                 Screen::GameOver { rank: Some(0) },
+                Screen::VersusOver { won: true },
                 Screen::Settings,
             ] {
-                let view = View {
-                    game: &game,
-                    screen,
-                    scores: &scores,
-                    ghost: true,
-                    preview_count: 5,
-                    menu: Some(&menu),
-                    key_releases: false,
-                };
-                terminal
-                    .draw(|frame| renderer.render(frame, &view))
-                    .unwrap();
+                for versus in [
+                    None,
+                    Some(Versus {
+                        opponent: &opponent,
+                        level: Level::APlus,
+                    }),
+                ] {
+                    let view = View {
+                        game: &game,
+                        screen,
+                        scores: &scores,
+                        ghost: true,
+                        preview_count: 5,
+                        menu: Some(&menu),
+                        key_releases: false,
+                        versus,
+                        title: Title {
+                            selected: 1,
+                            level: Level::APlus,
+                        },
+                    };
+                    terminal
+                        .draw(|frame| renderer.render(frame, &view))
+                        .unwrap();
+                }
             }
         }
     }

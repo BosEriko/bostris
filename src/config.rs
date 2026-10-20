@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
+use crate::bot::Level;
 use crate::game::Settings;
 use crate::input::{Action, Keymap, key_name, parse_key};
 
@@ -50,6 +51,7 @@ pub struct Config {
     pub ghost: bool,
     pub color_mode: ColorMode,
     pub keymap: Keymap,
+    pub bot_level: Level,
 }
 
 impl Default for Config {
@@ -62,6 +64,7 @@ impl Default for Config {
             ghost: true,
             color_mode: ColorMode::Auto,
             keymap: Keymap::defaults(),
+            bot_level: Level::APlus,
         }
     }
 }
@@ -71,7 +74,14 @@ impl Default for Config {
 struct RawConfig {
     gameplay: RawGameplay,
     display: RawDisplay,
+    versus: RawVersus,
     keys: BTreeMap<String, KeyList>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawVersus {
+    bot_level: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -193,6 +203,10 @@ pub fn to_toml(config: &Config) -> String {
          # \"auto\", \"truecolor\", \"256\" or \"16\"\n\
          color_mode = {}\n\
          \n\
+         [versus]\n\
+         # Bot difficulty: D, C, B, A, A+, S or X\n\
+         bot_level = {}\n\
+         \n\
          [keys]\n\
          # Key names: Left, Right, Up, Down, Space, Esc, Enter, Tab, Backspace,\n\
          # Home, End, PageUp, PageDown, Insert, Delete, F1-F12 or a single character.\n",
@@ -224,6 +238,7 @@ pub fn to_toml(config: &Config) -> String {
         s.finesse_retry,
         s.finesse_180,
         quote(config.color_mode.name()),
+        quote(config.bot_level.name()),
     );
     for action in Action::ALL {
         let names: Vec<String> = config
@@ -342,6 +357,16 @@ pub fn parse(text: &str) -> (Config, Vec<String>) {
         },
     };
 
+    let bot_level = match raw.versus.bot_level.as_deref() {
+        None => defaults.bot_level,
+        Some(name) => Level::parse(name).unwrap_or_else(|| {
+            w.push(format!(
+                "bot_level = \"{name}\" is not recognised; using A+"
+            ));
+            defaults.bot_level
+        }),
+    };
+
     let keymap = build_keymap(raw.keys, w);
 
     (
@@ -353,6 +378,7 @@ pub fn parse(text: &str) -> (Config, Vec<String>) {
             ghost: g.ghost.unwrap_or(true),
             color_mode,
             keymap,
+            bot_level,
         },
         warnings,
     )
@@ -429,6 +455,7 @@ mod tests {
             preview_count: 2,
             ghost: false,
             color_mode: ColorMode::Ansi256,
+            bot_level: Level::S,
             settings: Settings {
                 soft_drop_factor: 12.5,
                 start_level: 7,

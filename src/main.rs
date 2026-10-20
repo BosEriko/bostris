@@ -1,6 +1,7 @@
 mod app;
 mod bag;
 mod board;
+mod bot;
 mod config;
 mod finesse;
 mod game;

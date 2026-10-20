@@ -1,14 +1,24 @@
+use std::collections::VecDeque;
 use std::time::Duration;
 
 use crate::bag::{Randomizer, Rng};
-use crate::board::{Board, VISIBLE_HEIGHT};
+use crate::board::{Board, VISIBLE_HEIGHT, WIDTH};
 use crate::finesse::{self, Fault, Stats as FinesseStats};
 use crate::piece::{Kind, Piece, Rotation, kicks, kicks_180};
-use crate::scoring::{ClearEvent, Scoring, gravity_cells_per_second};
+use crate::scoring::{Clear, ClearEvent, Scoring, Spin, gravity_cells_per_second};
 
 pub const TICK: Duration = Duration::from_nanos(16_666_667);
 const MAX_CELLS_PER_TICK: f64 = 20.0;
 const TOAST_DURATION: Duration = Duration::from_millis(1800);
+pub const GARBAGE_DELAY: Duration = Duration::from_millis(500);
+pub const GARBAGE_CAP: u32 = 8;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Garbage {
+    lines: u32,
+    column: u8,
+    wait: Duration,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
@@ -32,6 +42,37 @@ impl Default for Settings {
             finesse_retry: false,
             finesse_180: false,
         }
+    }
+}
+
+pub fn t_spin(board: &Board, piece: &Piece, spin_kick: Option<bool>) -> Spin {
+    let Some(fifth_kick) = spin_kick else {
+        return Spin::None;
+    };
+    if piece.kind != Kind::T {
+        return Spin::None;
+    }
+    let Piece { x, y, rotation, .. } = *piece;
+    let filled = |dx: i8, dy: i8| board.is_blocked(x + dx, y + dy);
+    let (top_left, top_right, bottom_left, bottom_right) =
+        (filled(0, 2), filled(2, 2), filled(0, 0), filled(2, 0));
+    let corners = [top_left, top_right, bottom_left, bottom_right]
+        .iter()
+        .filter(|&&c| c)
+        .count();
+    if corners < 3 {
+        return Spin::None;
+    }
+    let front = match rotation {
+        Rotation::Spawn => top_left && top_right,
+        Rotation::Right => top_right && bottom_right,
+        Rotation::Reverse => bottom_left && bottom_right,
+        Rotation::Left => top_left && bottom_left,
+    };
+    if front || fifth_kick {
+        Spin::Full
+    } else {
+        Spin::Mini
     }
 }
 
@@ -76,11 +117,18 @@ pub struct Game {
     spawns: u32,
     drop_points: u64,
     finesse: FinesseStats,
+    spin_kick: Option<bool>,
+    pending: VecDeque<Garbage>,
+    garbage_rng: Rng,
+    outgoing: u32,
+    attack_total: u32,
+    gravity_level: Option<u32>,
     revision: u64,
 }
 
 impl Game {
-    pub fn new(settings: Settings, rng: Rng) -> Self {
+    pub fn new(settings: Settings, mut rng: Rng) -> Self {
+        let garbage_rng = Rng::new(rng.next_u64());
         let mut randomizer = Randomizer::new(rng);
         let first = randomizer.next();
         let scoring = Scoring::new(settings.start_level);
@@ -105,6 +153,12 @@ impl Game {
             spawns: 0,
             drop_points: 0,
             finesse: FinesseStats::default(),
+            spin_kick: None,
+            pending: VecDeque::with_capacity(16),
+            garbage_rng,
+            outgoing: 0,
+            attack_total: 0,
+            gravity_level: None,
             revision: 0,
         };
         game.spawn(first);
@@ -170,6 +224,42 @@ impl Game {
         self.touch();
     }
 
+    pub fn set_gravity_level(&mut self, level: Option<u32>) {
+        self.gravity_level = level;
+    }
+
+    pub fn receive_garbage(&mut self, lines: u32) {
+        if lines == 0 || self.phase == Phase::Over {
+            return;
+        }
+        let column = self.garbage_rng.below(WIDTH as u32) as u8;
+        self.pending.push_back(Garbage {
+            lines,
+            column,
+            wait: GARBAGE_DELAY,
+        });
+        self.touch();
+    }
+
+    pub fn take_outgoing(&mut self) -> u32 {
+        std::mem::take(&mut self.outgoing)
+    }
+
+    pub fn attack_total(&self) -> u32 {
+        self.attack_total
+    }
+
+    pub fn pending_garbage(&self) -> (u32, u32) {
+        self.pending.iter().fold((0, 0), |(ready, total), g| {
+            let ready = if g.wait.is_zero() {
+                ready + g.lines
+            } else {
+                ready
+            };
+            (ready, total + g.lines)
+        })
+    }
+
     pub fn spawn_id(&self) -> u32 {
         self.spawns
     }
@@ -211,6 +301,7 @@ impl Game {
         self.inputs = 0;
         self.spawns = self.spawns.wrapping_add(1);
         self.drop_points = 0;
+        self.spin_kick = None;
         self.phase = if self.board.collides(&self.active) {
             Phase::Over
         } else {
@@ -251,21 +342,22 @@ impl Game {
             return false;
         }
         self.place(candidate);
+        self.spin_kick = None;
         true
     }
 
     pub fn rotate(&mut self, clockwise: bool) -> bool {
         let from = self.active.rotation;
         let to = if clockwise { from.cw() } else { from.ccw() };
-        self.try_rotate(to, &kicks(self.active.kind, from, to))
+        self.try_rotate(to, &kicks(self.active.kind, from, to), true)
     }
 
     pub fn rotate_180(&mut self) -> bool {
         let from = self.active.rotation;
-        self.try_rotate(from.flip(), kicks_180(self.active.kind, from))
+        self.try_rotate(from.flip(), kicks_180(self.active.kind, from), false)
     }
 
-    fn try_rotate(&mut self, to: Rotation, kicks: &[(i8, i8)]) -> bool {
+    fn try_rotate(&mut self, to: Rotation, kicks: &[(i8, i8)], quarter: bool) -> bool {
         if self.phase != Phase::Falling {
             return false;
         }
@@ -273,10 +365,11 @@ impl Game {
             rotation: to,
             ..self.active
         };
-        for &(dx, dy) in kicks {
+        for (index, &(dx, dy)) in kicks.iter().enumerate() {
             let candidate = rotated.shifted(dx, dy);
             if !self.board.collides(&candidate) {
                 self.place(candidate);
+                self.spin_kick = Some(quarter && index == 4);
                 return true;
             }
         }
@@ -294,6 +387,7 @@ impl Game {
             self.lock_resets = 0;
         }
         self.lock_timer = Duration::ZERO;
+        self.spin_kick = None;
         self.touch();
         true
     }
@@ -321,7 +415,10 @@ impl Game {
             return;
         }
         let distance = self.board.drop_distance(&self.active);
-        self.active = self.active.shifted(0, -distance);
+        if distance > 0 {
+            self.active = self.active.shifted(0, -distance);
+            self.spin_kick = None;
+        }
         if self.lock_piece() {
             self.scoring.hard_drop(distance as u32);
         }
@@ -373,6 +470,7 @@ impl Game {
             .active
             .cells()
             .all(|(_, y)| y as usize >= VISIBLE_HEIGHT);
+        let spin = t_spin(&self.board, &self.active, self.spin_kick);
         self.board.lock(&self.active);
         self.hold_used = false;
         self.pieces += 1;
@@ -382,15 +480,30 @@ impl Game {
             return true;
         }
         let rows = self.board.full_rows();
-        if let Some(event) = self.scoring.lock(rows.count_ones())
-            && fault.is_none()
-        {
-            self.toast = Some(Toast {
-                event: ToastEvent::Clear(event),
-                age: Duration::ZERO,
-            });
+        let perfect = rows != 0 && {
+            let mut after = self.board.clone();
+            after.clear_rows(rows);
+            after.is_empty()
+        };
+        let clear = Clear {
+            lines: rows.count_ones(),
+            spin,
+            perfect,
+        };
+        if let Some(event) = self.scoring.lock(clear) {
+            self.send_attack(event.attack);
+            if fault.is_none() {
+                self.toast = Some(Toast {
+                    event: ToastEvent::Clear(event),
+                    age: Duration::ZERO,
+                });
+            }
         }
         if rows == 0 {
+            if self.apply_garbage() {
+                self.phase = Phase::Over;
+                return true;
+            }
             self.spawn_next();
         } else if self.settings.line_clear_delay.is_zero() {
             self.finish_clear(rows);
@@ -401,6 +514,45 @@ impl Game {
             };
         }
         true
+    }
+
+    fn send_attack(&mut self, attack: u32) {
+        self.attack_total += attack;
+        let mut remaining = attack;
+        while remaining > 0
+            && let Some(front) = self.pending.front_mut()
+        {
+            let cancelled = remaining.min(front.lines);
+            front.lines -= cancelled;
+            remaining -= cancelled;
+            if front.lines == 0 {
+                self.pending.pop_front();
+            }
+        }
+        self.outgoing += remaining;
+    }
+
+    fn apply_garbage(&mut self) -> bool {
+        let mut budget = GARBAGE_CAP;
+        let mut overflow = false;
+        while budget > 0
+            && let Some(front) = self.pending.front_mut()
+            && front.wait.is_zero()
+        {
+            let lines = front.lines.min(budget);
+            overflow |= self
+                .board
+                .push_garbage(lines as usize, usize::from(front.column));
+            front.lines -= lines;
+            budget -= lines;
+            if front.lines == 0 {
+                self.pending.pop_front();
+            }
+        }
+        if budget != GARBAGE_CAP {
+            self.touch();
+        }
+        overflow
     }
 
     fn finish_clear(&mut self, rows: u64) {
@@ -416,6 +568,14 @@ impl Game {
         self.elapsed += dt;
         if self.elapsed.as_secs() != previous_second {
             self.touch();
+        }
+        for garbage in &mut self.pending {
+            if !garbage.wait.is_zero() {
+                garbage.wait = garbage.wait.saturating_sub(dt);
+                if garbage.wait.is_zero() {
+                    self.revision = self.revision.wrapping_add(1);
+                }
+            }
         }
         if let Some(toast) = &mut self.toast {
             toast.age += dt;
@@ -440,7 +600,8 @@ impl Game {
     }
 
     fn apply_gravity(&mut self, dt: Duration) {
-        let mut cells_per_second = gravity_cells_per_second(self.scoring.level());
+        let level = self.gravity_level.unwrap_or_else(|| self.scoring.level());
+        let mut cells_per_second = gravity_cells_per_second(level);
         if self.soft_drop {
             cells_per_second *= self.settings.soft_drop_factor;
         }
@@ -972,5 +1133,134 @@ mod tests {
         assert!(game.hold());
         game.hard_drop();
         assert_eq!(game.finesse().faults, 0);
+    }
+
+    fn tsd_board() -> Board {
+        let mut board = Board::default();
+        fill_row(&mut board, 0, Some(4));
+        for x in 0..WIDTH as i8 {
+            if !(3..=5).contains(&x) {
+                board.set(x, 1, Some(Kind::Z));
+            }
+        }
+        board.set(3, 2, Some(Kind::Z));
+        board.set(2, 2, Some(Kind::Z));
+        board
+    }
+
+    #[test]
+    fn t_spin_double_is_detected() {
+        let mut game = game().with_board(tsd_board());
+        game.set_active(piece(Kind::T, Rotation::Right, 3, 0));
+        assert!(game.rotate(true));
+        game.hard_drop();
+        assert_eq!(game.scoring().lines, 2);
+        assert_eq!(game.attack_total(), 4);
+        assert_eq!(game.take_outgoing(), 4);
+        assert_eq!(game.take_outgoing(), 0);
+        assert!(matches!(
+            game.toast().unwrap().event,
+            ToastEvent::Clear(ClearEvent {
+                spin: Spin::Full,
+                lines: 2,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn spin_needs_rotation_as_last_move() {
+        let mut board = tsd_board();
+        board.set(3, 2, None);
+        board.set(2, 2, None);
+        board.set(0, 2, Some(Kind::Z));
+        let mut game = game().with_board(board);
+        game.set_active(piece(Kind::T, Rotation::Reverse, 3, 3));
+        game.hard_drop();
+        assert_eq!(game.scoring().lines, 2);
+        assert_eq!(game.attack_total(), 1);
+    }
+
+    #[test]
+    fn garbage_waits_then_rises_on_next_lock() {
+        let mut game = game();
+        game.receive_garbage(3);
+        assert_eq!(game.pending_garbage(), (0, 3));
+        game.set_active(piece(Kind::O, Rotation::Spawn, 3, 10));
+        game.hard_drop();
+        assert_eq!(game.pending_garbage(), (0, 3));
+        while game.pending_garbage().0 == 0 {
+            game.tick(TICK);
+        }
+        let mut board_before_hole = 0;
+        game.set_active(piece(Kind::O, Rotation::Spawn, -1, 10));
+        game.hard_drop();
+        assert_eq!(game.pending_garbage(), (0, 0));
+        for y in 0..3 {
+            let empty = (0..WIDTH as i8)
+                .filter(|&x| game.board().get(x, y).is_none())
+                .count();
+            assert_eq!(empty, 1);
+            board_before_hole += 1;
+        }
+        assert_eq!(board_before_hole, 3);
+        assert_eq!(game.board().get(4, 3), Some(Kind::O));
+    }
+
+    #[test]
+    fn attack_cancels_incoming_garbage() {
+        let mut board = Board::default();
+        for y in 0..4 {
+            fill_row(&mut board, y, Some(9));
+        }
+        board.set(0, 4, Some(Kind::Z));
+        let mut game = game().with_board(board);
+        game.receive_garbage(3);
+        game.receive_garbage(2);
+        game.set_active(piece(Kind::I, Rotation::Right, 7, 5));
+        game.hard_drop();
+        assert_eq!(game.attack_total(), 4);
+        assert_eq!(game.pending_garbage(), (0, 1));
+        assert_eq!(game.take_outgoing(), 0);
+    }
+
+    #[test]
+    fn garbage_is_capped_per_piece() {
+        let mut game = game();
+        game.receive_garbage(10);
+        for _ in 0..40 {
+            game.tick(TICK);
+        }
+        game.set_active(piece(Kind::O, Rotation::Spawn, -1, 30));
+        game.hard_drop();
+        assert_eq!(game.pending_garbage(), (2, 2));
+        let garbage_rows = (0..12)
+            .filter(|&y| game.board().get(9, y).is_some() || game.board().get(8, y).is_some())
+            .count();
+        assert!(garbage_rows >= 8);
+    }
+
+    #[test]
+    fn perfect_clear_sends_bonus_attack() {
+        let mut board = Board::default();
+        for y in 0..4 {
+            fill_row(&mut board, y, Some(9));
+        }
+        let mut game = game().with_board(board);
+        game.set_active(piece(Kind::I, Rotation::Right, 7, 5));
+        game.hard_drop();
+        assert_eq!(game.attack_total(), 14);
+        assert!(game.board().is_empty());
+    }
+
+    #[test]
+    fn fixed_gravity_level_ignores_lines() {
+        let mut game = game();
+        game.set_gravity_level(Some(1));
+        let start = game.active().unwrap().y;
+        for _ in 0..30 {
+            game.tick(TICK);
+        }
+        assert_eq!(game.active().unwrap().y, start);
     }
 }

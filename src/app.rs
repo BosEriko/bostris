@@ -2,23 +2,32 @@ use std::io;
 use std::time::{Duration, Instant};
 
 use ratatui::DefaultTerminal;
-use ratatui::crossterm::event::{self, Event, KeyEvent, KeyEventKind};
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 
 use crate::bag::Rng;
+use crate::bot::Bot;
 use crate::config::{self, Config};
-use crate::game::{Game, TICK};
+use crate::game::{Game, Settings, TICK};
 use crate::highscores::HighScores;
 use crate::input::{Action, AutoShift, Direction, Shift, is_quit_chord};
 use crate::settings::{Outcome, SettingsMenu};
-use crate::ui::{self, Renderer, Screen, View};
+use crate::ui::{self, Renderer, Screen, Title, Versus, View};
 
 const FRAME: Duration = Duration::from_nanos(16_666_667);
 const MAX_CATCH_UP_TICKS: u32 = 15;
 const REPEAT_WINDOW: Duration = Duration::from_millis(550);
 
+struct Match {
+    opponent: Game,
+    bot: Bot,
+}
+
 pub struct App {
     config: Config,
     game: Game,
+    versus: Option<Match>,
+    title: Title,
+    size: (u16, u16),
     screen: Screen,
     scores: HighScores,
     renderer: Renderer,
@@ -29,7 +38,7 @@ pub struct App {
     precise_keys: bool,
     fits: bool,
     dirty: bool,
-    drawn_revision: u64,
+    drawn_revision: (u64, u64),
     quit: bool,
     save_error: Option<String>,
 }
@@ -39,9 +48,16 @@ impl App {
         let renderer = Renderer::new(config.color_mode, &config.keymap);
         let shifter = AutoShift::new(config.das, config.arr);
         let game = Game::new(config.settings.clone(), Rng::from_entropy());
+        let title = Title {
+            selected: 0,
+            level: config.bot_level,
+        };
         Self {
             config,
             game,
+            versus: None,
+            title,
+            size: (0, 0),
             screen: Screen::Ready,
             scores,
             renderer,
@@ -52,7 +68,7 @@ impl App {
             precise_keys,
             fits: true,
             dirty: true,
-            drawn_revision: 0,
+            drawn_revision: (0, 0),
             quit: false,
             save_error: None,
         }
@@ -64,14 +80,15 @@ impl App {
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         let size = terminal.size()?;
-        self.fits = ui::fits(size.width, size.height);
+        self.size = (size.width, size.height);
+        self.update_fits();
         let mut next_tick = Instant::now();
         let mut last_draw: Option<Instant> = None;
         let mut was_simulating = false;
 
         while !self.quit {
             let now = Instant::now();
-            let needs_draw = self.dirty || self.game.revision() != self.drawn_revision;
+            let needs_draw = self.dirty || self.revision() != self.drawn_revision;
             let mut draw_wait = None;
             if needs_draw {
                 match last_draw.map(|t| now.duration_since(t)) {
@@ -122,6 +139,18 @@ impl App {
         Ok(())
     }
 
+    fn revision(&self) -> (u64, u64) {
+        (
+            self.game.revision(),
+            self.versus.as_ref().map_or(0, |m| m.opponent.revision()),
+        )
+    }
+
+    fn update_fits(&mut self) {
+        let versus = self.versus.is_some() && self.screen != Screen::Ready;
+        self.fits = ui::fits(self.size.0, self.size.1, versus);
+    }
+
     fn is_simulating(&self) -> bool {
         self.screen == Screen::Playing && self.fits
     }
@@ -135,10 +164,15 @@ impl App {
             preview_count: self.config.preview_count,
             menu: self.menu.as_ref(),
             key_releases: self.precise_keys,
+            versus: self.versus.as_ref().map(|m| Versus {
+                opponent: &m.opponent,
+                level: m.bot.level(),
+            }),
+            title: self.title,
         };
         let renderer = &mut self.renderer;
         terminal.draw(|frame| renderer.render(frame, &view))?;
-        self.drawn_revision = self.game.revision();
+        self.drawn_revision = self.revision();
         self.dirty = false;
         Ok(())
     }
@@ -158,10 +192,28 @@ impl App {
             }
         }
         self.game.tick(TICK);
+        if let Some(versus) = &mut self.versus {
+            versus.bot.tick(&mut versus.opponent, TICK);
+            versus.opponent.tick(TICK);
+            versus.opponent.receive_garbage(self.game.take_outgoing());
+            self.game.receive_garbage(versus.opponent.take_outgoing());
+        }
     }
 
     fn check_game_over(&mut self) {
-        if self.screen != Screen::Playing || !self.game.is_over() {
+        if self.screen != Screen::Playing {
+            return;
+        }
+        if let Some(versus) = &self.versus {
+            let lost = self.game.is_over();
+            if lost || versus.opponent.is_over() {
+                self.release_keys();
+                self.screen = Screen::VersusOver { won: !lost };
+                self.dirty = true;
+            }
+            return;
+        }
+        if !self.game.is_over() {
             return;
         }
         let scoring = self.game.scoring();
@@ -190,8 +242,83 @@ impl App {
     }
 
     fn restart(&mut self) {
+        if self.versus.is_some() {
+            self.start_versus();
+        } else {
+            self.start_marathon();
+        }
+    }
+
+    fn start_marathon(&mut self) {
+        self.versus = None;
         self.game = Game::new(self.config.settings.clone(), Rng::from_entropy());
         self.set_screen(Screen::Playing);
+        self.update_fits();
+    }
+
+    fn bot_settings(&self) -> Settings {
+        Settings {
+            finesse_retry: false,
+            ..self.config.settings.clone()
+        }
+    }
+
+    fn start_versus(&mut self) {
+        let seed = Rng::from_entropy().next_u64();
+        let gravity = Some(self.config.settings.start_level);
+        self.game = Game::new(self.config.settings.clone(), Rng::new(seed));
+        self.game.set_gravity_level(gravity);
+        let mut opponent = Game::new(self.bot_settings(), Rng::new(seed));
+        opponent.set_gravity_level(gravity);
+        let bot = Bot::new(self.title.level, Rng::from_entropy());
+        self.versus = Some(Match { opponent, bot });
+        self.set_screen(Screen::Playing);
+        self.update_fits();
+    }
+
+    fn open_title(&mut self) {
+        self.versus = None;
+        self.game = Game::new(self.config.settings.clone(), Rng::from_entropy());
+        self.set_screen(Screen::Ready);
+        self.update_fits();
+    }
+
+    fn start_selected(&mut self) {
+        if self.title.selected == 1 {
+            if self.title.level != self.config.bot_level {
+                self.config.bot_level = self.title.level;
+                if let Err(err) = config::save(&self.config) {
+                    self.save_error = Some(format!("could not save settings: {err}"));
+                }
+            }
+            self.start_versus();
+        } else {
+            self.start_marathon();
+        }
+    }
+
+    fn handle_title_key(&mut self, key: KeyEvent, action: Option<Action>) -> bool {
+        match (key.code, action) {
+            (KeyCode::Up, _) | (KeyCode::Down, _) | (KeyCode::Tab, _) => {
+                self.title.selected = 1 - self.title.selected;
+            }
+            (KeyCode::Left, _) | (_, Some(Action::Left)) => {
+                self.title.level = self.title.level.step(-1);
+                self.title.selected = 1;
+            }
+            (KeyCode::Right, _) | (_, Some(Action::Right)) => {
+                self.title.level = self.title.level.step(1);
+                self.title.selected = 1;
+            }
+            (KeyCode::Enter, _) | (_, Some(Action::HardDrop)) => {
+                if self.fits {
+                    self.start_selected();
+                }
+            }
+            _ => return false,
+        }
+        self.dirty = true;
+        true
     }
 
     fn open_settings(&mut self) {
@@ -221,6 +348,10 @@ impl App {
             self.game = Game::new(self.config.settings.clone(), Rng::from_entropy());
         } else {
             self.game.set_settings(self.config.settings.clone());
+            let bot_settings = self.bot_settings();
+            if let Some(versus) = &mut self.versus {
+                versus.opponent.set_settings(bot_settings);
+            }
         }
         self.set_screen(self.settings_return);
     }
@@ -247,7 +378,8 @@ impl App {
         match event {
             Event::Key(key) => self.handle_key(key),
             Event::Resize(width, height) => {
-                self.fits = ui::fits(width, height);
+                self.size = (width, height);
+                self.update_fits();
                 if !self.fits && self.screen == Screen::Playing {
                     self.set_screen(Screen::Paused);
                 }
@@ -270,6 +402,22 @@ impl App {
             return;
         }
         let action = self.config.keymap.action(&key);
+        if key.kind != KeyEventKind::Release
+            && !matches!(action, Some(Action::Quit | Action::Settings))
+        {
+            match self.screen {
+                Screen::Ready => {
+                    if self.handle_title_key(key, action) {
+                        return;
+                    }
+                }
+                Screen::Paused if key.code == KeyCode::Backspace => {
+                    self.open_title();
+                    return;
+                }
+                _ => {}
+            }
+        }
         match key.kind {
             KeyEventKind::Press => self.on_press(action),
             KeyEventKind::Repeat => {
@@ -294,21 +442,17 @@ impl App {
             return;
         }
         match self.screen {
-            Screen::Ready => {
-                if self.fits {
-                    self.set_screen(Screen::Playing);
-                }
-            }
+            Screen::Ready => {}
             Screen::Paused => match action {
                 Some(Action::Pause) if self.fits => self.set_screen(Screen::Playing),
                 Some(Action::Restart) => self.restart(),
                 _ => {}
             },
-            Screen::GameOver { .. } => {
-                if action == Some(Action::Restart) {
-                    self.restart();
-                }
-            }
+            Screen::GameOver { .. } | Screen::VersusOver { .. } => match action {
+                Some(Action::Restart) => self.restart(),
+                Some(Action::Pause) => self.open_title(),
+                _ => {}
+            },
             Screen::Settings => {}
             Screen::Playing => {
                 if let Some(action) = action {

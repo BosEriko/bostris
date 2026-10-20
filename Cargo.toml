@@ -12,6 +12,9 @@ ratatui = { version = "0.30", default-features = false, features = ["crossterm"]
 serde = { version = "1", features = ["derive"] }
 toml = "1"
 
+[profile.dev]
+opt-level = 1
+
 [profile.release]
 lto = true
 codegen-units = 1

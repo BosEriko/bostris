@@ -75,6 +75,24 @@ impl Board {
         mask
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.rows.iter().all(|row| row.iter().all(Option::is_none))
+    }
+
+    pub fn push_garbage(&mut self, lines: usize, hole: usize) -> bool {
+        let lines = lines.min(HEIGHT);
+        let overflow = self.rows[HEIGHT - lines..]
+            .iter()
+            .any(|row| row.iter().any(Option::is_some));
+        self.rows.copy_within(0..HEIGHT - lines, lines);
+        let mut garbage = [Some(Kind::Garbage); WIDTH];
+        garbage[hole.min(WIDTH - 1)] = None;
+        for row in &mut self.rows[..lines] {
+            *row = garbage;
+        }
+        overflow
+    }
+
     pub fn clear_rows(&mut self, mask: u64) -> u32 {
         let mut write = 0;
         for read in 0..HEIGHT {
@@ -136,6 +154,27 @@ mod tests {
         assert_eq!(board.drop_distance(&piece), 18);
         board.set(5, 3, Some(Kind::S));
         assert_eq!(board.drop_distance(&piece), 14);
+    }
+
+    #[test]
+    fn garbage_rises_from_the_bottom() {
+        let mut board = Board::default();
+        board.set(3, 0, Some(Kind::T));
+        assert!(!board.push_garbage(2, 7));
+        assert_eq!(board.get(3, 2), Some(Kind::T));
+        assert_eq!(board.get(7, 0), None);
+        assert_eq!(board.get(7, 1), None);
+        assert_eq!(board.get(0, 1), Some(Kind::Garbage));
+        assert_eq!(board.full_rows(), 0);
+        assert!(!board.is_empty());
+        assert!(Board::default().is_empty());
+    }
+
+    #[test]
+    fn garbage_overflow_is_reported() {
+        let mut board = Board::default();
+        board.set(0, HEIGHT as i8 - 1, Some(Kind::I));
+        assert!(board.push_garbage(1, 0));
     }
 
     #[test]

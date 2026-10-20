@@ -7,7 +7,8 @@ A fast, polished falling-block puzzle game for the terminal, written in Rust wit
 - Super Rotation System (SRS) with full wall and floor kicks, plus 180° spins (SRS+ kicks)
 - Seven-bag randomizer, next queue (up to six pieces) and hold
 - Ghost piece, soft drop and hard drop
-- Guideline scoring with back-to-back Tetris bonus and combos
+- Guideline scoring with T-spins, back-to-back bonuses, combos and perfect clears
+- Versus mode against an AI opponent, with seven difficulty levels from D to X
 - Increasing gravity, lock delay with move/rotate reset limits
 - In-game settings screen for keys, DAS, ARR and more
 - Finesse tracking with an optional retry-on-fault training mode
@@ -51,8 +52,10 @@ The binary has no runtime dependencies and runs on macOS, Linux and Windows.
 | S              | Settings                    |
 | Q (or Ctrl+C)  | Quit                        |
 
-Press any key on the title screen to begin. The game pauses automatically when the
-terminal loses focus or becomes too small.
+On the title screen, use ↑/↓ to choose **Marathon** or **Versus AI**, ←/→ to pick the
+bot's level, and Enter (or Space) to start. The game pauses automatically when the
+terminal loses focus or becomes too small. From the pause screen, Backspace returns to
+the title; from a game-over screen, P/Esc does.
 
 ## Gameplay
 
@@ -69,16 +72,66 @@ locks entirely above the visible field.
 
 ### Scoring
 
-| Action           | Points             |
-| ---------------- | ------------------ |
-| Single           | 100 × level        |
-| Double           | 300 × level        |
-| Triple           | 500 × level        |
-| Tetris           | 800 × level        |
-| Back-to-back Tetris | ×1.5            |
-| Combo            | +50 × combo × level |
-| Soft drop        | 1 per row          |
-| Hard drop        | 2 per row          |
+| Action                    | Points                    |
+| ------------------------- | ------------------------- |
+| Single / Double / Triple  | 100 / 300 / 500 × level   |
+| Tetris                    | 800 × level               |
+| T-spin (no lines)         | 400 × level               |
+| T-spin Single / Double / Triple | 800 / 1200 / 1600 × level |
+| T-spin Mini (0 / 1 / 2 lines) | 100 / 200 / 400 × level |
+| Back-to-back Tetris or T-spin | ×1.5                  |
+| Combo                     | +50 × combo × level       |
+| Perfect clear             | +800 to +2000 × level     |
+| Soft drop / hard drop     | 1 / 2 per row             |
+
+T-spins use the three-corner rule: the last move must be a rotation, and three of the
+four cells diagonal to the T's centre must be blocked. A T-spin is "mini" unless both
+cells on the side the T points to are blocked, or the rotation used the last SRS kick.
+
+## Versus AI
+
+Choose **Versus AI** on the title screen to battle a bot. Both players get the same
+piece sequence. Clearing lines sends garbage to your opponent:
+
+| Clear                         | Lines sent |
+| ----------------------------- | ---------- |
+| Double / Triple / Tetris      | 1 / 2 / 4  |
+| T-spin Single / Double / Triple | 2 / 4 / 6 |
+| T-spin Mini Double            | 1          |
+| Back-to-back bonus            | +1         |
+| Combo                         | +1 to +5   |
+| Perfect clear                 | +10        |
+
+Incoming garbage appears in the red meter beside your board. It rises 0.5 s after it
+arrives, at most 8 rows per piece, the next time you place a piece without clearing a
+line. Clearing lines first cancels incoming garbage. The first player to top out loses.
+Gravity stays at your start level for the whole match.
+
+The bot plays through the same rules and inputs as you: it searches every reachable
+placement (including tucks, T-spins and 180° spins at the highest levels), looks ahead
+using hold and the next queue, and moves the piece one input per frame.
+
+| Level | Speed (pieces/s) | Measured attack/min |
+| ----- | ---------------- | ------------------- |
+| D     | 0.75             | ~12                 |
+| C     | 1.1              | ~20                 |
+| B     | 1.25             | ~32                 |
+| A     | 1.55             | ~47                 |
+| A+    | 2.0              | ~65                 |
+| S     | 2.4              | ~85                 |
+| X     | 3.4              | ~120                |
+
+Attack per minute was measured in solo play without garbage. The levels are named
+after TETR.IO ranks, and the targets are approximate figures for players of those
+ranks, so treat them as a rough guide rather than an exact match. Lower levels also
+search less, use fewer T-spins and make deliberate mistakes. The chosen level is saved
+as `bot_level` in the configuration file.
+
+To re-measure the levels:
+
+```sh
+cargo test --release benchmark_levels -- --ignored --nocapture
+```
 
 ## Settings
 
@@ -144,6 +197,9 @@ finesse_180 = false    # count 180 degree spins when judging finesse
 [display]
 color_mode = "auto"    # auto, truecolor, 256, 16
 
+[versus]
+bot_level = "A+"       # D, C, B, A, A+, S or X
+
 [keys]
 left = ["Left"]
 right = ["Right"]
@@ -205,6 +261,7 @@ cargo build --release
 | `game`          | Game state, gravity, lock delay, hold            |
 | `input`         | Keymap and DAS/ARR auto-shift                    |
 | `finesse`       | Optimal input search and finesse statistics      |
+| `bot`           | AI opponent: placement search and evaluation     |
 | `settings`      | Settings menu model and key rebinding            |
 | `config`        | Configuration parsing and validation             |
 | `highscores`    | High-score persistence                           |
