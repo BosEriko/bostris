@@ -1,5 +1,5 @@
 use crate::board::Board;
-use crate::piece::{Kind, Piece, Rotation, kicks};
+use crate::piece::{Kind, Piece, Rotation, kicks, kicks_180};
 
 const X_OFFSET: i8 = 3;
 const X_STATES: usize = 16;
@@ -26,19 +26,14 @@ fn index(piece: &Piece) -> Option<usize> {
     (x < X_STATES).then(|| x * 4 + piece.rotation as usize)
 }
 
-fn rotated(board: &Board, piece: &Piece, clockwise: bool) -> Option<Piece> {
-    let to = if clockwise {
-        piece.rotation.cw()
-    } else {
-        piece.rotation.ccw()
-    };
+fn rotated(board: &Board, piece: &Piece, to: Rotation, kicks: &[(i8, i8)]) -> Option<Piece> {
     let turned = Piece {
         rotation: to,
         ..*piece
     };
-    kicks(piece.kind, piece.rotation, to)
-        .into_iter()
-        .map(|(dx, dy)| turned.shifted(dx, dy))
+    kicks
+        .iter()
+        .map(|&(dx, dy)| turned.shifted(dx, dy))
         .find(|candidate| !board.collides(candidate))
 }
 
@@ -59,7 +54,7 @@ fn shifted(board: &Board, piece: &Piece, dx: i8, repeat: bool) -> Option<Piece> 
     moved.then_some(current)
 }
 
-pub fn optimal_inputs(kind: Kind, rotation: Rotation, x: i8) -> Option<u32> {
+pub fn optimal_inputs(kind: Kind, rotation: Rotation, x: i8, allow_180: bool) -> Option<u32> {
     let board = Board::default();
     let target = footprint(&Piece {
         kind,
@@ -87,8 +82,28 @@ pub fn optimal_inputs(kind: Kind, rotation: Rotation, x: i8) -> Option<u32> {
             shifted(&board, &piece, 1, false),
             shifted(&board, &piece, -1, true),
             shifted(&board, &piece, 1, true),
-            rotated(&board, &piece, true),
-            rotated(&board, &piece, false),
+            rotated(
+                &board,
+                &piece,
+                piece.rotation.cw(),
+                &kicks(kind, piece.rotation, piece.rotation.cw()),
+            ),
+            rotated(
+                &board,
+                &piece,
+                piece.rotation.ccw(),
+                &kicks(kind, piece.rotation, piece.rotation.ccw()),
+            ),
+            allow_180
+                .then(|| {
+                    rotated(
+                        &board,
+                        &piece,
+                        piece.rotation.flip(),
+                        kicks_180(kind, piece.rotation),
+                    )
+                })
+                .flatten(),
         ];
         for next in moves.into_iter().flatten() {
             let Some(i) = index(&next) else {
@@ -140,11 +155,16 @@ impl Stats {
     }
 }
 
-pub fn evaluate(board: &Board, piece: &Piece, used: u32) -> Option<Result<(), Fault>> {
+pub fn evaluate(
+    board: &Board,
+    piece: &Piece,
+    used: u32,
+    allow_180: bool,
+) -> Option<Result<(), Fault>> {
     if !is_droppable(board, piece) {
         return None;
     }
-    let optimal = optimal_inputs(piece.kind, piece.rotation, piece.x)?;
+    let optimal = optimal_inputs(piece.kind, piece.rotation, piece.x, allow_180)?;
     Some(if used > optimal {
         Err(Fault { used, optimal })
     } else {
@@ -157,7 +177,14 @@ mod tests {
     use super::*;
 
     fn at(kind: Kind, rotation: Rotation, x: i8) -> u32 {
-        optimal_inputs(kind, rotation, x).unwrap()
+        optimal_inputs(kind, rotation, x, false).unwrap()
+    }
+
+    #[test]
+    fn spin_180_shortens_reverse_placements() {
+        assert_eq!(optimal_inputs(Kind::T, Rotation::Reverse, 3, true), Some(1));
+        assert_eq!(optimal_inputs(Kind::T, Rotation::Reverse, 0, true), Some(2));
+        assert_eq!(optimal_inputs(Kind::T, Rotation::Right, 3, true), Some(1));
     }
 
     #[test]
@@ -205,9 +232,9 @@ mod tests {
             x: 0,
             y: 0,
         };
-        assert_eq!(evaluate(&board, &piece, 1), Some(Ok(())));
+        assert_eq!(evaluate(&board, &piece, 1, false), Some(Ok(())));
         assert_eq!(
-            evaluate(&board, &piece, 3),
+            evaluate(&board, &piece, 3, false),
             Some(Err(Fault {
                 used: 3,
                 optimal: 1
@@ -226,7 +253,7 @@ mod tests {
             y: 0,
         };
         assert!(!is_droppable(&board, &piece));
-        assert_eq!(evaluate(&board, &piece, 9), None);
+        assert_eq!(evaluate(&board, &piece, 9, false), None);
     }
 
     #[test]

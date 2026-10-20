@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::bag::{Randomizer, Rng};
 use crate::board::{Board, VISIBLE_HEIGHT};
 use crate::finesse::{self, Fault, Stats as FinesseStats};
-use crate::piece::{Kind, Piece, kicks};
+use crate::piece::{Kind, Piece, Rotation, kicks, kicks_180};
 use crate::scoring::{ClearEvent, Scoring, gravity_cells_per_second};
 
 pub const TICK: Duration = Duration::from_nanos(16_666_667);
@@ -18,6 +18,7 @@ pub struct Settings {
     pub line_clear_delay: Duration,
     pub soft_drop_factor: f64,
     pub finesse_retry: bool,
+    pub finesse_180: bool,
 }
 
 impl Default for Settings {
@@ -29,6 +30,7 @@ impl Default for Settings {
             line_clear_delay: Duration::from_millis(250),
             soft_drop_factor: 20.0,
             finesse_retry: false,
+            finesse_180: false,
         }
     }
 }
@@ -253,16 +255,25 @@ impl Game {
     }
 
     pub fn rotate(&mut self, clockwise: bool) -> bool {
+        let from = self.active.rotation;
+        let to = if clockwise { from.cw() } else { from.ccw() };
+        self.try_rotate(to, &kicks(self.active.kind, from, to))
+    }
+
+    pub fn rotate_180(&mut self) -> bool {
+        let from = self.active.rotation;
+        self.try_rotate(from.flip(), kicks_180(self.active.kind, from))
+    }
+
+    fn try_rotate(&mut self, to: Rotation, kicks: &[(i8, i8)]) -> bool {
         if self.phase != Phase::Falling {
             return false;
         }
-        let from = self.active.rotation;
-        let to = if clockwise { from.cw() } else { from.ccw() };
         let rotated = Piece {
             rotation: to,
             ..self.active
         };
-        for (dx, dy) in kicks(self.active.kind, from, to) {
+        for &(dx, dy) in kicks {
             let candidate = rotated.shifted(dx, dy);
             if !self.board.collides(&candidate) {
                 self.place(candidate);
@@ -330,7 +341,12 @@ impl Game {
     }
 
     fn check_finesse(&mut self) -> Option<Fault> {
-        let result = finesse::evaluate(&self.board, &self.active, self.inputs)?;
+        let result = finesse::evaluate(
+            &self.board,
+            &self.active,
+            self.inputs,
+            self.settings.finesse_180,
+        )?;
         self.finesse.evaluated += 1;
         let fault = result.err()?;
         self.finesse.faults += 1;
@@ -598,6 +614,51 @@ mod tests {
             (2, 8, Rotation::Right)
         );
         assert_eq!(sorted_cells(&active), vec![(3, 8), (3, 9), (3, 10), (4, 9)]);
+    }
+
+    #[test]
+    fn rotate_180_flips_in_place() {
+        let mut game = game();
+        game.set_active(piece(Kind::T, Rotation::Spawn, 4, 10));
+        assert!(game.rotate_180());
+        let active = *game.active().unwrap();
+        assert_eq!(
+            (active.x, active.y, active.rotation),
+            (4, 10, Rotation::Reverse)
+        );
+        assert!(game.rotate_180());
+        assert_eq!(game.active().unwrap().rotation, Rotation::Spawn);
+    }
+
+    #[test]
+    fn rotate_180_kicks_up_from_floor() {
+        let mut game = game();
+        game.set_active(piece(Kind::T, Rotation::Spawn, 4, -1));
+        assert!(game.rotate_180());
+        let active = *game.active().unwrap();
+        assert_eq!(active.rotation, Rotation::Reverse);
+        assert_eq!(active.y, 0);
+        assert!(active.cells().all(|(_, y)| y >= 0));
+    }
+
+    #[test]
+    fn finesse_counts_180_only_when_enabled() {
+        for (allow, faults) in [(false, 0), (true, 1)] {
+            let mut game = Game::new(
+                Settings {
+                    finesse_180: allow,
+                    ..settings()
+                },
+                Rng::new(3),
+            );
+            game.set_active(piece(Kind::T, Rotation::Spawn, 3, 10));
+            for _ in 0..2 {
+                game.note_input();
+                game.rotate(true);
+            }
+            game.hard_drop();
+            assert_eq!(game.finesse().faults, faults);
+        }
     }
 
     #[test]

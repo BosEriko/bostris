@@ -87,6 +87,7 @@ struct RawGameplay {
     preview_count: Option<i64>,
     ghost: Option<bool>,
     finesse_retry: Option<bool>,
+    finesse_180: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -185,6 +186,8 @@ pub fn to_toml(config: &Config) -> String {
          ghost = {}\n\
          # Respawn the piece instead of locking it when it was placed with extra inputs\n\
          finesse_retry = {}\n\
+         # Count 180 degree rotations as a single input when judging finesse\n\
+         finesse_180 = {}\n\
          \n\
          [display]\n\
          # \"auto\", \"truecolor\", \"256\" or \"16\"\n\
@@ -219,6 +222,7 @@ pub fn to_toml(config: &Config) -> String {
         config.preview_count,
         config.ghost,
         s.finesse_retry,
+        s.finesse_180,
         quote(config.color_mode.name()),
     );
     for action in Action::ALL {
@@ -310,6 +314,7 @@ pub fn parse(text: &str) -> (Config, Vec<String>) {
         )),
         soft_drop_factor,
         finesse_retry: g.finesse_retry.unwrap_or(false),
+        finesse_180: g.finesse_180.unwrap_or(false),
     };
 
     let das = millis(ranged(w, "das_ms", g.das_ms, DAS_MS, 167));
@@ -355,15 +360,15 @@ pub fn parse(text: &str) -> (Config, Vec<String>) {
 
 fn build_keymap(mut keys: BTreeMap<String, KeyList>, warnings: &mut Vec<String>) -> Keymap {
     let mut keymap = Keymap::default();
+    let mut missing = Vec::new();
     for action in Action::ALL {
-        let names: Vec<String> = match keys.remove(action.name()) {
+        let names = match keys.remove(action.name()) {
             Some(KeyList::One(name)) => vec![name],
             Some(KeyList::Many(names)) => names,
-            None => action
-                .default_keys()
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
+            None => {
+                missing.push(action);
+                continue;
+            }
         };
         let mut bound = false;
         for name in &names {
@@ -380,7 +385,18 @@ fn build_keymap(mut keys: BTreeMap<String, KeyList>, warnings: &mut Vec<String>)
                 "no valid keys for {}; using defaults",
                 action.name()
             ));
-            keymap.bind_defaults(action);
+            missing.push(action);
+        }
+    }
+    for action in missing {
+        for code in action
+            .default_keys()
+            .iter()
+            .filter_map(|name| parse_key(name))
+        {
+            if keymap.owner(code).is_none() {
+                keymap.bind(code, action);
+            }
         }
     }
     for name in keys.keys() {
@@ -417,6 +433,7 @@ mod tests {
                 soft_drop_factor: 12.5,
                 start_level: 7,
                 finesse_retry: true,
+                finesse_180: true,
                 ..Settings::default()
             },
             ..Config::default()
@@ -474,6 +491,21 @@ mod tests {
             Some(Action::Left)
         );
         assert_eq!(keymap.action(&press(KeyCode::Up)), Some(Action::RotateCw));
+    }
+
+    #[test]
+    fn defaults_for_missing_actions_do_not_steal_keys() {
+        let (config, warnings) = parse("[keys]\nleft = [\"a\"]\n");
+        assert!(warnings.is_empty());
+        assert_eq!(
+            config.keymap.action(&press(KeyCode::Char('a'))),
+            Some(Action::Left)
+        );
+        assert_eq!(config.keymap.keys_for(Action::Rotate180).count(), 0);
+        assert_eq!(
+            config.keymap.action(&press(KeyCode::Char('z'))),
+            Some(Action::RotateCcw)
+        );
     }
 
     #[test]

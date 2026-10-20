@@ -134,6 +134,7 @@ impl App {
             ghost: self.config.ghost,
             preview_count: self.config.preview_count,
             menu: self.menu.as_ref(),
+            key_releases: self.precise_keys,
         };
         let renderer = &mut self.renderer;
         terminal.draw(|frame| renderer.render(frame, &view))?;
@@ -347,6 +348,10 @@ impl App {
             Action::RotateCcw => {
                 self.game.note_input();
                 self.game.rotate(false);
+            }
+            Action::Rotate180 => {
+                self.game.note_input();
+                self.game.rotate_180();
             }
             Action::Hold => {
                 self.game.hold();

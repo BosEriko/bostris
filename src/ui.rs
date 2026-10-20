@@ -35,6 +35,7 @@ pub struct View<'a> {
     pub ghost: bool,
     pub preview_count: usize,
     pub menu: Option<&'a SettingsMenu>,
+    pub key_releases: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -231,6 +232,7 @@ pub struct Renderer {
     theme: Theme,
     keys: [String; Action::ALL.len()],
     scratch: String,
+    in_tmux: bool,
 }
 
 impl Renderer {
@@ -244,6 +246,7 @@ impl Renderer {
             theme: Theme::new(Palette::detect(mode)),
             keys,
             scratch: String::with_capacity(64),
+            in_tmux: std::env::var_os("TMUX").is_some(),
         }
     }
 
@@ -257,7 +260,7 @@ impl Renderer {
         if view.screen == Screen::Settings
             && let Some(menu) = view.menu
         {
-            self.render_settings(buf, area, menu);
+            self.render_settings(buf, area, menu, view.key_releases);
             return;
         }
         let Some(layout) = compute_layout(area) else {
@@ -803,7 +806,13 @@ impl Renderer {
         self.render_key_line(buf, inner, y + 2, Action::Quit, "Quit");
     }
 
-    fn render_settings(&mut self, buf: &mut Buffer, area: Rect, menu: &SettingsMenu) {
+    fn render_settings(
+        &mut self,
+        buf: &mut Buffer,
+        area: Rect,
+        menu: &SettingsMenu,
+        key_releases: bool,
+    ) {
         let width = area.width.min(60);
         let height = area.height.min(ITEMS.len() as u16 + 6);
         let label = Style::new().fg(self.theme.label);
@@ -871,8 +880,7 @@ impl Renderer {
                 }
                 Item::Field(field) => {
                     self.scratch.clear();
-                    let adjustable =
-                        !matches!(field, Field::Ghost | Field::FinesseRetry | Field::Colors);
+                    let adjustable = !field.is_toggle();
                     if selected && adjustable {
                         self.scratch.push_str("‹ ");
                     }
@@ -942,6 +950,17 @@ impl Renderer {
                 (self.scratch.as_str(), accent)
             }
             (Some(status), None) => (status, warn),
+            (None, None)
+                if !key_releases
+                    && matches!(item, Item::Field(Field::Das | Field::Arr | Field::SoftDrop)) =>
+            {
+                let message = if self.in_tmux {
+                    "Inactive in tmux: run outside tmux for real key holds"
+                } else {
+                    "Inactive: this terminal doesn't report key releases"
+                };
+                (message, warn)
+            }
             (None, None) => (
                 match item {
                     Item::Field(field) => field.description(),
@@ -963,7 +982,7 @@ impl Renderer {
         let hint = match (capture, item) {
             (Some(_), _) => "Any key binds it  ·  Ctrl+C quits",
             (None, Item::Key(_)) => "Enter Rebind  A Add  Del Default  Esc Back",
-            (None, Item::Field(Field::Ghost | Field::FinesseRetry | Field::Colors)) => {
+            (None, Item::Field(field)) if field.is_toggle() => {
                 "↑↓ Select  Enter/←→ Toggle  Esc Save & back"
             }
             (None, Item::Field(_)) => "↑↓ Select  ←→ Adjust  Esc Save & back",
@@ -1070,6 +1089,7 @@ mod tests {
                     ghost: true,
                     preview_count: 5,
                     menu: Some(&menu),
+                    key_releases: false,
                 };
                 terminal
                     .draw(|frame| renderer.render(frame, &view))

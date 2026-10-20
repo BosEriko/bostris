@@ -19,12 +19,20 @@ pub enum Field {
     LineClear,
     StartLevel,
     FinesseRetry,
+    Finesse180,
     Preview,
     Ghost,
     Colors,
 }
 
 impl Field {
+    pub fn is_toggle(self) -> bool {
+        matches!(
+            self,
+            Field::Ghost | Field::FinesseRetry | Field::Finesse180 | Field::Colors
+        )
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Field::Das => "DAS",
@@ -35,6 +43,7 @@ impl Field {
             Field::LineClear => "Line clear time",
             Field::StartLevel => "Start level",
             Field::FinesseRetry => "Retry on fault",
+            Field::Finesse180 => "180 in finesse",
             Field::Preview => "Next pieces",
             Field::Ghost => "Ghost piece",
             Field::Colors => "Colors",
@@ -51,6 +60,7 @@ impl Field {
             Field::LineClear => "Length of the line clear animation",
             Field::StartLevel => "Level for new games",
             Field::FinesseRetry => "Redo a piece placed with more inputs than needed",
+            Field::Finesse180 => "Count a 180° spin as one input when judging finesse",
             Field::Preview => "Upcoming pieces shown in the queue",
             Field::Ghost => "Show where the piece will land",
             Field::Colors => "Color palette (auto detects your terminal)",
@@ -67,7 +77,7 @@ pub enum Item {
     Back,
 }
 
-pub const ITEMS: [Item; 29] = [
+pub const ITEMS: [Item; 31] = [
     Item::Header("HANDLING"),
     Item::Field(Field::Das),
     Item::Field(Field::Arr),
@@ -78,6 +88,7 @@ pub const ITEMS: [Item; 29] = [
     Item::Field(Field::LineClear),
     Item::Field(Field::StartLevel),
     Item::Field(Field::FinesseRetry),
+    Item::Field(Field::Finesse180),
     Item::Header("DISPLAY"),
     Item::Field(Field::Preview),
     Item::Field(Field::Ghost),
@@ -89,6 +100,7 @@ pub const ITEMS: [Item; 29] = [
     Item::Key(Action::HardDrop),
     Item::Key(Action::RotateCw),
     Item::Key(Action::RotateCcw),
+    Item::Key(Action::Rotate180),
     Item::Key(Action::Hold),
     Item::Key(Action::Pause),
     Item::Key(Action::Restart),
@@ -212,7 +224,7 @@ impl SettingsMenu {
 
     fn activate(&mut self) -> Outcome {
         match self.selected() {
-            Item::Field(Field::Ghost | Field::FinesseRetry | Field::Colors) => self.adjust(1),
+            Item::Field(field) if field.is_toggle() => self.adjust(1),
             Item::Field(_) | Item::Header(_) => {}
             Item::Key(action) => self.capture = Some(Capture::Replace(action)),
             Item::Reset => {
@@ -254,6 +266,7 @@ impl SettingsMenu {
                     step_int(settings.start_level.into(), delta, START_LEVEL) as u32
             }
             Field::FinesseRetry => settings.finesse_retry = !settings.finesse_retry,
+            Field::Finesse180 => settings.finesse_180 = !settings.finesse_180,
             Field::Preview => {
                 config.preview_count =
                     step_int(config.preview_count as i64, delta, PREVIEW_COUNT) as usize
@@ -351,6 +364,7 @@ impl SettingsMenu {
             Field::LineClear => write!(out, "{} ms", settings.line_clear_delay.as_millis()),
             Field::StartLevel => write!(out, "{}", settings.start_level),
             Field::FinesseRetry => write!(out, "{}", on_off(settings.finesse_retry)),
+            Field::Finesse180 => write!(out, "{}", on_off(settings.finesse_180)),
             Field::Preview => write!(out, "{}", config.preview_count),
             Field::Ghost => write!(out, "{}", on_off(config.ghost)),
             Field::Colors => write!(

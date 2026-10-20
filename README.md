@@ -4,7 +4,7 @@ A fast, polished falling-block puzzle game for the terminal, written in Rust wit
 [Ratatui](https://ratatui.rs) and [Crossterm](https://github.com/crossterm-rs/crossterm).
 
 - Standard 10×20 field with all seven tetrominoes
-- Super Rotation System (SRS) with full wall and floor kicks
+- Super Rotation System (SRS) with full wall and floor kicks, plus 180° spins (SRS+ kicks)
 - Seven-bag randomizer, next queue (up to six pieces) and hold
 - Ghost piece, soft drop and hard drop
 - Guideline scoring with back-to-back Tetris bonus and combos
@@ -44,6 +44,7 @@ The binary has no runtime dependencies and runs on macOS, Linux and Windows.
 | Space          | Hard drop                   |
 | ↑ or X         | Rotate clockwise            |
 | Z              | Rotate counterclockwise     |
+| A              | Rotate 180°                 |
 | C              | Hold piece                  |
 | P or Esc       | Pause / resume              |
 | R              | Restart                     |
@@ -104,6 +105,9 @@ counts as one input. Each placement is compared with the minimum needed to reach
 same spot from spawn, and the stats panel shows your finesse accuracy and fault count.
 Tucks and spins that cannot be reached by dropping straight down are not judged.
 
+Enable **180 in finesse** if you use 180° spins, so a single 180° spin counts as one
+input instead of two rotations.
+
 Turn on **Retry on fault** in settings to practise: a placement with extra inputs does
 not lock; the same piece respawns at the top so you can place it again.
 
@@ -135,6 +139,7 @@ line_clear_ms = 250    # 0-1000
 preview_count = 5      # 0-6
 ghost = true
 finesse_retry = false  # retry pieces placed with extra inputs
+finesse_180 = false    # count 180 degree spins when judging finesse
 
 [display]
 color_mode = "auto"    # auto, truecolor, 256, 16
@@ -146,6 +151,7 @@ soft_drop = ["Down"]
 hard_drop = ["Space"]
 rotate_cw = ["Up", "x"]
 rotate_ccw = ["z"]
+rotate_180 = ["a"]
 hold = ["c"]
 pause = ["p", "Esc"]
 restart = ["r"]
@@ -167,7 +173,12 @@ Precise DAS/ARR and held soft drop need the terminal to report key releases. bos
 enables the kitty keyboard protocol when the terminal supports it (kitty, WezTerm,
 Ghostty, foot, Alacritty, recent iTerm2) and always has release events on Windows.
 In other terminals, holding a key relies on the terminal's own key repeat, so
-horizontal auto-repeat follows your system keyboard repeat settings.
+horizontal auto-repeat follows your system keyboard repeat settings, and pressing
+another key (for example rotating while holding →) stops the repeat. The settings
+screen warns when this is the case.
+
+**tmux** does not forward key release events, even when the outer terminal supports
+them. Run bostris directly in the terminal, outside tmux, for proper key holds.
 
 ## High scores
 

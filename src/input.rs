@@ -10,6 +10,7 @@ pub enum Action {
     HardDrop,
     RotateCw,
     RotateCcw,
+    Rotate180,
     Hold,
     Pause,
     Restart,
@@ -18,13 +19,14 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 11] = [
+    pub const ALL: [Action; 12] = [
         Action::Left,
         Action::Right,
         Action::SoftDrop,
         Action::HardDrop,
         Action::RotateCw,
         Action::RotateCcw,
+        Action::Rotate180,
         Action::Hold,
         Action::Pause,
         Action::Restart,
@@ -40,6 +42,7 @@ impl Action {
             Action::HardDrop => "hard_drop",
             Action::RotateCw => "rotate_cw",
             Action::RotateCcw => "rotate_ccw",
+            Action::Rotate180 => "rotate_180",
             Action::Hold => "hold",
             Action::Pause => "pause",
             Action::Restart => "restart",
@@ -56,6 +59,7 @@ impl Action {
             Action::HardDrop => "Hard drop",
             Action::RotateCw => "Rotate ↻",
             Action::RotateCcw => "Rotate ↺",
+            Action::Rotate180 => "Rotate 180°",
             Action::Hold => "Hold",
             Action::Pause => "Pause",
             Action::Restart => "Restart",
@@ -72,6 +76,7 @@ impl Action {
             Action::HardDrop => &["Space"],
             Action::RotateCw => &["Up", "x"],
             Action::RotateCcw => &["z"],
+            Action::Rotate180 => &["a"],
             Action::Hold => &["c"],
             Action::Pause => &["p", "Esc"],
             Action::Restart => &["r"],

@@ -71,6 +71,10 @@ impl Rotation {
         Self::from_index(self as u8 + 1)
     }
 
+    pub fn flip(self) -> Self {
+        Self::from_index(self as u8 + 2)
+    }
+
     pub fn ccw(self) -> Self {
         Self::from_index(self as u8 + 3)
     }
@@ -100,6 +104,20 @@ const I_KICKS_CW: [Kicks; 4] = [
     [(0, 0), (2, 0), (-1, 0), (2, 1), (-1, -2)],
     [(0, 0), (1, 0), (-2, 0), (1, -2), (-2, 1)],
 ];
+
+const KICKS_180: [[(i8, i8); 6]; 4] = [
+    [(0, 0), (0, 1), (1, 1), (-1, 1), (1, 0), (-1, 0)],
+    [(0, 0), (1, 0), (1, 2), (1, 1), (0, 2), (0, 1)],
+    [(0, 0), (0, -1), (-1, -1), (1, -1), (-1, 0), (1, 0)],
+    [(0, 0), (-1, 0), (-1, 2), (-1, 1), (0, 2), (0, 1)],
+];
+
+pub fn kicks_180(kind: Kind, from: Rotation) -> &'static [(i8, i8)] {
+    match kind {
+        Kind::O => &[(0, 0)],
+        _ => &KICKS_180[from as usize],
+    }
+}
 
 pub fn kicks(kind: Kind, from: Rotation, to: Rotation) -> Kicks {
     match kind {
@@ -212,6 +230,21 @@ mod tests {
         let mut left = Kind::I.cells(Rotation::Left);
         left.sort();
         assert_eq!(left, [(1, 0), (1, 1), (1, 2), (1, 3)]);
+    }
+
+    #[test]
+    fn flip_is_two_rotations() {
+        for r in [
+            Rotation::Spawn,
+            Rotation::Right,
+            Rotation::Reverse,
+            Rotation::Left,
+        ] {
+            assert_eq!(r.flip(), r.cw().cw());
+            assert_eq!(r.flip().flip(), r);
+        }
+        assert_eq!(kicks_180(Kind::O, Rotation::Spawn), &[(0, 0)]);
+        assert_eq!(kicks_180(Kind::T, Rotation::Spawn)[1], (0, 1));
     }
 
     #[test]
