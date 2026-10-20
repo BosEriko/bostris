@@ -9,7 +9,8 @@ A fast, polished falling-block puzzle game for the terminal, written in Rust wit
 - Ghost piece, soft drop and hard drop
 - Guideline scoring with back-to-back Tetris bonus and combos
 - Increasing gravity, lock delay with move/rotate reset limits
-- Configurable keys, DAS and ARR
+- In-game settings screen for keys, DAS, ARR and more
+- Finesse tracking with an optional retry-on-fault training mode
 - Persistent top-ten high scores
 - True color, 256-color and 16-color palettes
 - Layout that scales up on large terminals and degrades gracefully on small ones
@@ -46,6 +47,7 @@ The binary has no runtime dependencies and runs on macOS, Linux and Windows.
 | C              | Hold piece                  |
 | P or Esc       | Pause / resume              |
 | R              | Restart                     |
+| S              | Settings                    |
 | Q (or Ctrl+C)  | Quit                        |
 
 Press any key on the title screen to begin. The game pauses automatically when the
@@ -77,9 +79,42 @@ locks entirely above the visible field.
 | Soft drop        | 1 per row          |
 | Hard drop        | 2 per row          |
 
+## Settings
+
+Press **S** on the title, pause or game-over screen (or during play, which pauses) to
+open the settings screen.
+
+| Key            | In settings                                   |
+| -------------- | --------------------------------------------- |
+| ↑ / ↓          | Select an option                              |
+| ← / →          | Adjust a value or toggle                      |
+| Enter          | Toggle, or rebind the selected control        |
+| A              | Add another key to the selected control       |
+| Delete / Bksp  | Restore the selected control's default keys   |
+| Esc            | Save and go back                              |
+
+When rebinding, the next key you press is bound, including Esc and Enter. Taking a key
+that is another control's only key swaps the two controls' keys, so no control is ever
+left unbound. Changes take effect immediately and are written to the configuration file.
+
+## Finesse
+
+Finesse is placing each piece with the fewest inputs. Every tap, DAS hold and rotation
+counts as one input. Each placement is compared with the minimum needed to reach the
+same spot from spawn, and the stats panel shows your finesse accuracy and fault count.
+Tucks and spins that cannot be reached by dropping straight down are not judged.
+
+Turn on **Retry on fault** in settings to practise: a placement with extra inputs does
+not lock; the same piece respawns at the top so you can place it again.
+
+Finesse counting is exact in terminals that report key releases (see below). In other
+terminals, a held key is detected from its auto-repeat, so two very quick taps in the
+same direction may be counted as one.
+
 ## Configuration
 
-A commented default configuration file is created on first launch. Run
+A commented default configuration file is created on first launch, and the settings
+screen rewrites it when you change something. Run
 `bostris --help` to print its exact path:
 
 | Platform | Config file                                              |
@@ -99,6 +134,7 @@ max_lock_resets = 15   # 0-100
 line_clear_ms = 250    # 0-1000
 preview_count = 5      # 0-6
 ghost = true
+finesse_retry = false  # retry pieces placed with extra inputs
 
 [display]
 color_mode = "auto"    # auto, truecolor, 256, 16
@@ -113,6 +149,7 @@ rotate_ccw = ["z"]
 hold = ["c"]
 pause = ["p", "Esc"]
 restart = ["r"]
+settings = ["s"]
 quit = ["q"]
 ```
 
@@ -156,6 +193,8 @@ cargo build --release
 | `scoring`       | Points, levels, gravity curve                    |
 | `game`          | Game state, gravity, lock delay, hold            |
 | `input`         | Keymap and DAS/ARR auto-shift                    |
+| `finesse`       | Optimal input search and finesse statistics      |
+| `settings`      | Settings menu model and key rebinding            |
 | `config`        | Configuration parsing and validation             |
 | `highscores`    | High-score persistence                           |
 | `ui`            | Ratatui rendering and responsive layout          |

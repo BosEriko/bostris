@@ -5,14 +5,16 @@ use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyEvent, KeyEventKind};
 
 use crate::bag::Rng;
-use crate::config::Config;
+use crate::config::{self, Config};
 use crate::game::{Game, TICK};
 use crate::highscores::HighScores;
-use crate::input::{Action, AutoShift, Direction, Shift};
+use crate::input::{Action, AutoShift, Direction, Shift, is_quit_chord};
+use crate::settings::{Outcome, SettingsMenu};
 use crate::ui::{self, Renderer, Screen, View};
 
 const FRAME: Duration = Duration::from_nanos(16_666_667);
 const MAX_CATCH_UP_TICKS: u32 = 15;
+const REPEAT_WINDOW: Duration = Duration::from_millis(550);
 
 pub struct App {
     config: Config,
@@ -21,6 +23,9 @@ pub struct App {
     scores: HighScores,
     renderer: Renderer,
     shifter: AutoShift,
+    menu: Option<SettingsMenu>,
+    settings_return: Screen,
+    last_tap: Option<(Direction, Instant, u32)>,
     precise_keys: bool,
     fits: bool,
     dirty: bool,
@@ -41,6 +46,9 @@ impl App {
             scores,
             renderer,
             shifter,
+            menu: None,
+            settings_return: Screen::Ready,
+            last_tap: None,
             precise_keys,
             fits: true,
             dirty: true,
@@ -125,6 +133,7 @@ impl App {
             scores: &self.scores,
             ghost: self.config.ghost,
             preview_count: self.config.preview_count,
+            menu: self.menu.as_ref(),
         };
         let renderer = &mut self.renderer;
         terminal.draw(|frame| renderer.render(frame, &view))?;
@@ -184,6 +193,55 @@ impl App {
         self.set_screen(Screen::Playing);
     }
 
+    fn open_settings(&mut self) {
+        self.settings_return = match self.screen {
+            Screen::Playing => Screen::Paused,
+            Screen::Settings => return,
+            other => other,
+        };
+        self.menu = Some(SettingsMenu::new(self.config.clone()));
+        self.set_screen(Screen::Settings);
+    }
+
+    fn close_settings(&mut self) {
+        let Some(menu) = self.menu.take() else {
+            return;
+        };
+        let updated = menu.into_config();
+        if updated != self.config {
+            self.config = updated;
+            if let Err(err) = config::save(&self.config) {
+                self.save_error = Some(format!("could not save settings: {err}"));
+            }
+        }
+        self.shifter = AutoShift::new(self.config.das, self.config.arr);
+        self.renderer = Renderer::new(self.config.color_mode, &self.config.keymap);
+        if self.settings_return == Screen::Ready {
+            self.game = Game::new(self.config.settings.clone(), Rng::from_entropy());
+        } else {
+            self.game.set_settings(self.config.settings.clone());
+        }
+        self.set_screen(self.settings_return);
+    }
+
+    fn handle_settings_key(&mut self, key: KeyEvent) {
+        if key.kind == KeyEventKind::Release {
+            return;
+        }
+        if is_quit_chord(&key) {
+            self.quit = true;
+            return;
+        }
+        let outcome = self
+            .menu
+            .as_mut()
+            .map_or(Outcome::Close, |menu| menu.handle(key));
+        self.dirty = true;
+        if outcome == Outcome::Close {
+            self.close_settings();
+        }
+    }
+
     fn handle_event(&mut self, event: Event) {
         match event {
             Event::Key(key) => self.handle_key(key),
@@ -206,6 +264,10 @@ impl App {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
+        if self.screen == Screen::Settings {
+            self.handle_settings_key(key);
+            return;
+        }
         let action = self.config.keymap.action(&key);
         match key.kind {
             KeyEventKind::Press => self.on_press(action),
@@ -226,6 +288,10 @@ impl App {
             self.quit = true;
             return;
         }
+        if action == Some(Action::Settings) {
+            self.open_settings();
+            return;
+        }
         match self.screen {
             Screen::Ready => {
                 if self.fits {
@@ -242,6 +308,7 @@ impl App {
                     self.restart();
                 }
             }
+            Screen::Settings => {}
             Screen::Playing => {
                 if let Some(action) = action {
                     self.play(action);
@@ -258,6 +325,9 @@ impl App {
                 } else {
                     Direction::Right
                 };
+                if self.is_new_tap(direction) {
+                    self.game.note_input();
+                }
                 self.game.shift(direction.dx());
                 if self.precise_keys {
                     self.shifter.press(direction);
@@ -271,9 +341,11 @@ impl App {
             }
             Action::HardDrop => self.game.hard_drop(),
             Action::RotateCw => {
+                self.game.note_input();
                 self.game.rotate(true);
             }
             Action::RotateCcw => {
+                self.game.note_input();
                 self.game.rotate(false);
             }
             Action::Hold => {
@@ -281,9 +353,19 @@ impl App {
             }
             Action::Pause => self.set_screen(Screen::Paused),
             Action::Restart => self.restart(),
+            Action::Settings => self.open_settings(),
             Action::Quit => self.quit = true,
         }
         self.check_game_over();
+    }
+
+    fn is_new_tap(&mut self, direction: Direction) -> bool {
+        let now = Instant::now();
+        let piece = self.game.spawn_id();
+        let previous = self.last_tap.replace((direction, now, piece));
+        self.precise_keys
+            || !matches!(previous, Some((d, t, p))
+                if d == direction && p == piece && now.duration_since(t) < REPEAT_WINDOW)
     }
 
     fn on_release(&mut self, action: Option<Action>) {

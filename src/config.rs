@@ -1,56 +1,26 @@
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Deserialize;
 
 use crate::game::Settings;
-use crate::input::{Action, Keymap, parse_key};
+use crate::input::{Action, Keymap, key_name, parse_key};
 
 pub const APP_DIR: &str = "bostris";
 const CONFIG_FILE: &str = "config.toml";
 
-pub const DEFAULT_CONFIG: &str = r#"# bostris configuration
-
-[gameplay]
-# Level to start on (1-30)
-start_level = 1
-# Delayed Auto Shift: how long to hold left/right before auto-repeat starts (ms, 0-1000)
-das_ms = 167
-# Auto Repeat Rate: delay between auto-repeated moves (ms, 0-500; 0 moves instantly to the wall)
-arr_ms = 33
-# Soft drop speed as a multiple of gravity (1-100)
-soft_drop_factor = 20
-# Time a grounded piece waits before locking (ms, 100-5000)
-lock_delay_ms = 500
-# Moves or rotations that may reset the lock delay (0-100)
-max_lock_resets = 15
-# Duration of the line clear animation (ms, 0-1000)
-line_clear_ms = 250
-# Number of upcoming pieces shown (0-6)
-preview_count = 5
-# Show where the current piece will land
-ghost = true
-
-[display]
-# "auto", "truecolor", "256" or "16"
-color_mode = "auto"
-
-[keys]
-# Key names: Left, Right, Up, Down, Space, Esc, Enter, Tab, Backspace,
-# Home, End, PageUp, PageDown, Insert, Delete, F1-F12 or a single character.
-left = ["Left"]
-right = ["Right"]
-soft_drop = ["Down"]
-hard_drop = ["Space"]
-rotate_cw = ["Up", "x"]
-rotate_ccw = ["z"]
-hold = ["c"]
-pause = ["p", "Esc"]
-restart = ["r"]
-quit = ["q"]
-"#;
+pub const START_LEVEL: (i64, i64) = (1, 30);
+pub const DAS_MS: (i64, i64) = (0, 1000);
+pub const ARR_MS: (i64, i64) = (0, 500);
+pub const SOFT_DROP_FACTOR: (f64, f64) = (1.0, 100.0);
+pub const LOCK_DELAY_MS: (i64, i64) = (100, 5000);
+pub const MAX_LOCK_RESETS: (i64, i64) = (0, 100);
+pub const LINE_CLEAR_MS: (i64, i64) = (0, 1000);
+pub const PREVIEW_COUNT: (i64, i64) = (0, 6);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ColorMode {
@@ -60,7 +30,18 @@ pub enum ColorMode {
     Ansi16,
 }
 
-#[derive(Clone, Debug)]
+impl ColorMode {
+    pub fn name(self) -> &'static str {
+        match self {
+            ColorMode::Auto => "auto",
+            ColorMode::TrueColor => "truecolor",
+            ColorMode::Ansi256 => "256",
+            ColorMode::Ansi16 => "16",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub settings: Settings,
     pub das: Duration,
@@ -105,6 +86,7 @@ struct RawGameplay {
     line_clear_ms: Option<i64>,
     preview_count: Option<i64>,
     ghost: Option<bool>,
+    finesse_retry: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -130,8 +112,8 @@ pub fn load() -> (Config, Vec<String>) {
     };
     match fs::read_to_string(&path) {
         Ok(text) => parse(&text),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            write_default(&path);
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            let _ = write_file(&path, &to_toml(&Config::default()));
             (Config::default(), Vec::new())
         }
         Err(err) => (
@@ -141,19 +123,121 @@ pub fn load() -> (Config, Vec<String>) {
     }
 }
 
-fn write_default(path: &Path) {
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
+pub fn save(config: &Config) -> io::Result<()> {
+    match config_path() {
+        Some(path) => write_file(&path, &to_toml(config)),
+        None => Ok(()),
     }
-    let _ = fs::write(path, DEFAULT_CONFIG);
+}
+
+fn write_file(path: &Path, text: &str) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let temp = path.with_extension("toml.tmp");
+    fs::write(&temp, text)?;
+    fs::rename(&temp, path)
+}
+
+fn quote(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if c.is_control() => {
+                let _ = write!(out, "\\u{:04X}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+pub fn to_toml(config: &Config) -> String {
+    let s = &config.settings;
+    let mut out = String::with_capacity(2048);
+    let _ = write!(
+        out,
+        "# bostris configuration\n\
+         # Edit this file or use the in-game settings screen.\n\
+         \n\
+         [gameplay]\n\
+         # Level to start on ({}-{})\n\
+         start_level = {}\n\
+         # Delayed Auto Shift: how long to hold left/right before auto-repeat starts (ms, {}-{})\n\
+         das_ms = {}\n\
+         # Auto Repeat Rate: delay between auto-repeated moves (ms, {}-{}; 0 moves instantly to the wall)\n\
+         arr_ms = {}\n\
+         # Soft drop speed as a multiple of gravity ({}-{})\n\
+         soft_drop_factor = {}\n\
+         # Time a grounded piece waits before locking (ms, {}-{})\n\
+         lock_delay_ms = {}\n\
+         # Moves or rotations that may reset the lock delay ({}-{})\n\
+         max_lock_resets = {}\n\
+         # Duration of the line clear animation (ms, {}-{})\n\
+         line_clear_ms = {}\n\
+         # Number of upcoming pieces shown ({}-{})\n\
+         preview_count = {}\n\
+         # Show where the current piece will land\n\
+         ghost = {}\n\
+         # Respawn the piece instead of locking it when it was placed with extra inputs\n\
+         finesse_retry = {}\n\
+         \n\
+         [display]\n\
+         # \"auto\", \"truecolor\", \"256\" or \"16\"\n\
+         color_mode = {}\n\
+         \n\
+         [keys]\n\
+         # Key names: Left, Right, Up, Down, Space, Esc, Enter, Tab, Backspace,\n\
+         # Home, End, PageUp, PageDown, Insert, Delete, F1-F12 or a single character.\n",
+        START_LEVEL.0,
+        START_LEVEL.1,
+        s.start_level,
+        DAS_MS.0,
+        DAS_MS.1,
+        config.das.as_millis(),
+        ARR_MS.0,
+        ARR_MS.1,
+        config.arr.as_millis(),
+        SOFT_DROP_FACTOR.0,
+        SOFT_DROP_FACTOR.1,
+        s.soft_drop_factor,
+        LOCK_DELAY_MS.0,
+        LOCK_DELAY_MS.1,
+        s.lock_delay.as_millis(),
+        MAX_LOCK_RESETS.0,
+        MAX_LOCK_RESETS.1,
+        s.max_lock_resets,
+        LINE_CLEAR_MS.0,
+        LINE_CLEAR_MS.1,
+        s.line_clear_delay.as_millis(),
+        PREVIEW_COUNT.0,
+        PREVIEW_COUNT.1,
+        config.preview_count,
+        config.ghost,
+        s.finesse_retry,
+        quote(config.color_mode.name()),
+    );
+    for action in Action::ALL {
+        let names: Vec<String> = config
+            .keymap
+            .keys_for(action)
+            .filter_map(key_name)
+            .map(|name| quote(&name))
+            .collect();
+        let _ = writeln!(out, "{} = [{}]", action.name(), names.join(", "));
+    }
+    out
 }
 
 fn ranged(
     warnings: &mut Vec<String>,
     name: &str,
     value: Option<i64>,
-    min: i64,
-    max: i64,
+    (min, max): (i64, i64),
     default: i64,
 ) -> i64 {
     match value {
@@ -189,33 +273,48 @@ pub fn parse(text: &str) -> (Config, Vec<String>) {
     let g = raw.gameplay;
     let w = &mut warnings;
 
+    let (min_factor, max_factor) = SOFT_DROP_FACTOR;
     let soft_drop_factor = match g.soft_drop_factor {
         None => defaults.settings.soft_drop_factor,
-        Some(v) if v.is_finite() && (1.0..=100.0).contains(&v) => v,
+        Some(v) if v.is_finite() && (min_factor..=max_factor).contains(&v) => v,
         Some(v) => {
             let clamped = if v.is_finite() {
-                v.clamp(1.0, 100.0)
+                v.clamp(min_factor, max_factor)
             } else {
-                20.0
+                defaults.settings.soft_drop_factor
             };
             w.push(format!(
-                "soft_drop_factor = {v} is outside 1-100; using {clamped}"
+                "soft_drop_factor = {v} is outside {min_factor}-{max_factor}; using {clamped}"
             ));
             clamped
         }
     };
 
     let settings = Settings {
-        start_level: ranged(w, "start_level", g.start_level, 1, 30, 1) as u32,
-        lock_delay: millis(ranged(w, "lock_delay_ms", g.lock_delay_ms, 100, 5000, 500)),
-        max_lock_resets: ranged(w, "max_lock_resets", g.max_lock_resets, 0, 100, 15) as u32,
-        line_clear_delay: millis(ranged(w, "line_clear_ms", g.line_clear_ms, 0, 1000, 250)),
+        start_level: ranged(w, "start_level", g.start_level, START_LEVEL, 1) as u32,
+        lock_delay: millis(ranged(
+            w,
+            "lock_delay_ms",
+            g.lock_delay_ms,
+            LOCK_DELAY_MS,
+            500,
+        )),
+        max_lock_resets: ranged(w, "max_lock_resets", g.max_lock_resets, MAX_LOCK_RESETS, 15)
+            as u32,
+        line_clear_delay: millis(ranged(
+            w,
+            "line_clear_ms",
+            g.line_clear_ms,
+            LINE_CLEAR_MS,
+            250,
+        )),
         soft_drop_factor,
+        finesse_retry: g.finesse_retry.unwrap_or(false),
     };
 
-    let das = millis(ranged(w, "das_ms", g.das_ms, 0, 1000, 167));
-    let arr = millis(ranged(w, "arr_ms", g.arr_ms, 0, 500, 33));
-    let preview_count = ranged(w, "preview_count", g.preview_count, 0, 6, 5) as usize;
+    let das = millis(ranged(w, "das_ms", g.das_ms, DAS_MS, 167));
+    let arr = millis(ranged(w, "arr_ms", g.arr_ms, ARR_MS, 33));
+    let preview_count = ranged(w, "preview_count", g.preview_count, PREVIEW_COUNT, 5) as usize;
 
     let color_mode = match raw
         .display
@@ -281,11 +380,7 @@ fn build_keymap(mut keys: BTreeMap<String, KeyList>, warnings: &mut Vec<String>)
                 "no valid keys for {}; using defaults",
                 action.name()
             ));
-            for name in action.default_keys() {
-                if let Some(code) = parse_key(name) {
-                    keymap.bind(code, action);
-                }
-            }
+            keymap.bind_defaults(action);
         }
     }
     for name in keys.keys() {
@@ -305,25 +400,40 @@ mod tests {
 
     #[test]
     fn default_file_matches_built_in_defaults() {
-        let (config, warnings) = parse(DEFAULT_CONFIG);
+        let (config, warnings) = parse(&to_toml(&Config::default()));
         assert!(warnings.is_empty(), "{warnings:?}");
-        let defaults = Config::default();
-        assert_eq!(config.settings, defaults.settings);
-        assert_eq!(config.das, defaults.das);
-        assert_eq!(config.arr, defaults.arr);
-        assert_eq!(config.preview_count, defaults.preview_count);
-        for action in Action::ALL {
-            let a: Vec<_> = config.keymap.keys_for(action).collect();
-            let b: Vec<_> = defaults.keymap.keys_for(action).collect();
-            assert_eq!(a, b);
-        }
+        assert_eq!(config, Config::default());
+    }
+
+    #[test]
+    fn customised_config_round_trips() {
+        let mut config = Config {
+            das: Duration::from_millis(90),
+            arr: Duration::ZERO,
+            preview_count: 2,
+            ghost: false,
+            color_mode: ColorMode::Ansi256,
+            settings: Settings {
+                soft_drop_factor: 12.5,
+                start_level: 7,
+                finesse_retry: true,
+                ..Settings::default()
+            },
+            ..Config::default()
+        };
+        config.keymap.clear(Action::Hold);
+        config.keymap.bind(KeyCode::Char('"'), Action::Hold);
+        config.keymap.bind(KeyCode::Tab, Action::Hold);
+        let (parsed, warnings) = parse(&to_toml(&config));
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(parsed, config);
     }
 
     #[test]
     fn empty_config_uses_defaults() {
         let (config, warnings) = parse("");
         assert!(warnings.is_empty());
-        assert_eq!(config.settings, Settings::default());
+        assert_eq!(config, Config::default());
         assert_eq!(
             config.keymap.action(&press(KeyCode::Char('c'))),
             Some(Action::Hold)

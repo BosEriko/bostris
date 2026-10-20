@@ -9,10 +9,11 @@ use ratatui::widgets::{Block, BorderType, Borders, Widget};
 
 use crate::board::{VISIBLE_HEIGHT, WIDTH};
 use crate::config::ColorMode;
-use crate::game::Game;
+use crate::game::{Game, ToastEvent};
 use crate::highscores::HighScores;
 use crate::input::{Action, Keymap, key_label};
 use crate::piece::{Kind, Piece, Rotation};
+use crate::settings::{Capture, Field, ITEMS, Item, SettingsMenu};
 
 const SIDE_WIDTH: [u16; 2] = [18, 20];
 const HELP_WIDTH: u16 = 24;
@@ -24,6 +25,7 @@ pub enum Screen {
     Playing,
     Paused,
     GameOver { rank: Option<usize> },
+    Settings,
 }
 
 pub struct View<'a> {
@@ -32,6 +34,7 @@ pub struct View<'a> {
     pub scores: &'a HighScores,
     pub ghost: bool,
     pub preview_count: usize,
+    pub menu: Option<&'a SettingsMenu>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,6 +80,8 @@ struct Theme {
     value: Color,
     flash: Color,
     muted: Color,
+    highlight: Color,
+    warn: Color,
 }
 
 impl Theme {
@@ -92,6 +97,8 @@ impl Theme {
                 value: Color::Rgb(230, 233, 240),
                 flash: Color::Rgb(245, 245, 255),
                 muted: Color::Rgb(70, 75, 90),
+                highlight: Color::Rgb(36, 41, 58),
+                warn: Color::Rgb(238, 110, 110),
             },
             Palette::Ansi256 => Self {
                 palette,
@@ -103,6 +110,8 @@ impl Theme {
                 value: Color::Indexed(255),
                 flash: Color::Indexed(231),
                 muted: Color::Indexed(240),
+                highlight: Color::Indexed(236),
+                warn: Color::Indexed(203),
             },
             Palette::Ansi16 => Self {
                 palette,
@@ -114,6 +123,8 @@ impl Theme {
                 value: Color::White,
                 flash: Color::White,
                 muted: Color::DarkGray,
+                highlight: Color::DarkGray,
+                warn: Color::LightRed,
             },
         }
     }
@@ -243,6 +254,12 @@ impl Renderer {
     pub fn render(&mut self, frame: &mut Frame, view: &View) {
         let area = frame.area();
         let buf = frame.buffer_mut();
+        if view.screen == Screen::Settings
+            && let Some(menu) = view.menu
+        {
+            self.render_settings(buf, area, menu);
+            return;
+        }
         let Some(layout) = compute_layout(area) else {
             self.render_too_small(buf, area);
             return;
@@ -260,7 +277,7 @@ impl Renderer {
             self.render_help(buf, help);
         }
         match view.screen {
-            Screen::Playing => {}
+            Screen::Playing | Screen::Settings => {}
             Screen::Ready => self.render_ready(buf, &layout, view),
             Screen::Paused => self.render_paused(buf, &layout),
             Screen::GameOver { rank } => self.render_game_over(buf, &layout, view, rank),
@@ -449,20 +466,23 @@ impl Renderer {
             );
         }
 
-        let stats_rect = Rect::new(left.x, hold_rect.bottom(), left.width, 8);
+        let stats_rect = Rect::new(left.x, hold_rect.bottom(), left.width, 10);
         let stats_block = self.theme.block(" STATS ");
         let inner = stats_block.inner(stats_rect);
         stats_block.render(stats_rect, buf);
         let scoring = view.game.scoring();
         let elapsed = view.game.elapsed().as_secs();
         let best = view.scores.best().max(scoring.score);
-        let rows: [(&str, Stat); 6] = [
+        let finesse = view.game.finesse();
+        let rows: [(&str, Stat); 8] = [
             ("Score", Stat::Number(scoring.score)),
             ("Best", Stat::Number(best)),
             ("Level", Stat::Number(u64::from(scoring.level()))),
             ("Lines", Stat::Number(u64::from(scoring.lines))),
             ("Time", Stat::Time(elapsed)),
             ("Pieces", Stat::Number(u64::from(view.game.pieces_placed()))),
+            ("Finesse", Stat::Percent(finesse.accuracy())),
+            ("Faults", Stat::Number(u64::from(finesse.faults))),
         ];
         for (i, (label, stat)) in rows.into_iter().enumerate() {
             let y = inner.y + i as u16;
@@ -472,6 +492,11 @@ impl Renderer {
                 Stat::Number(n) => write_grouped(&mut self.scratch, n),
                 Stat::Time(t) => {
                     let _ = write!(self.scratch, "{}:{:02}", t / 60, t % 60);
+                }
+                Stat::Percent(None) => self.scratch.push('–'),
+                Stat::Percent(Some(p)) if p >= 99.95 => self.scratch.push_str("100%"),
+                Stat::Percent(Some(p)) => {
+                    let _ = write!(self.scratch, "{p:.1}%");
                 }
             }
             let x = inner
@@ -495,7 +520,27 @@ impl Renderer {
         if area.height == 0 {
             return;
         }
-        let event = toast.event;
+        let event = match toast.event {
+            ToastEvent::Clear(event) => event,
+            ToastEvent::Fault { fault, retry } => {
+                let warn = Style::new()
+                    .fg(self.theme.warn)
+                    .add_modifier(Modifier::BOLD);
+                let label = Style::new().fg(self.theme.label);
+                center(buf, area, area.y, "FINESSE FAULT", warn);
+                self.scratch.clear();
+                let _ = write!(
+                    self.scratch,
+                    "{} inputs, need {}",
+                    fault.used, fault.optimal
+                );
+                center(buf, area, area.y + 1, &self.scratch, label);
+                if retry {
+                    center(buf, area, area.y + 2, "RETRY", warn);
+                }
+                return;
+            }
+        };
         let name = match event.lines {
             1 => "SINGLE",
             2 => "DOUBLE",
@@ -570,33 +615,26 @@ impl Renderer {
     }
 
     fn render_help(&self, buf: &mut Buffer, area: Rect) {
-        let entries = [
-            (Action::Left, "Move left"),
-            (Action::Right, "Move right"),
-            (Action::SoftDrop, "Soft drop"),
-            (Action::HardDrop, "Hard drop"),
-            (Action::RotateCw, "Rotate ↻"),
-            (Action::RotateCcw, "Rotate ↺"),
-            (Action::Hold, "Hold"),
-            (Action::Pause, "Pause"),
-            (Action::Restart, "Restart"),
-            (Action::Quit, "Quit"),
-        ];
         let rect = Rect::new(
             area.x,
             area.y,
             area.width,
-            (entries.len() as u16 + 2).min(area.height),
+            (Action::ALL.len() as u16 + 2).min(area.height),
         );
         let block = self.theme.block(" CONTROLS ");
         let inner = block.inner(rect);
         block.render(rect, buf);
-        for (i, (action, label)) in entries.into_iter().enumerate() {
+        for (i, action) in Action::ALL.into_iter().enumerate() {
             let y = inner.y + i as u16;
             if y >= inner.bottom() {
                 break;
             }
-            buf.set_string(inner.x + 1, y, label, Style::new().fg(self.theme.label));
+            buf.set_string(
+                inner.x + 1,
+                y,
+                action.label(),
+                Style::new().fg(self.theme.label),
+            );
             let keys = self.key(action);
             let x = inner
                 .right()
@@ -660,7 +698,7 @@ impl Renderer {
     }
 
     fn render_ready(&mut self, buf: &mut Buffer, layout: &Layout, view: &View) {
-        let inner = self.overlay(buf, layout, 7);
+        let inner = self.overlay(buf, layout, 8);
         let title = Style::new()
             .fg(self.theme.accent)
             .add_modifier(Modifier::BOLD);
@@ -681,18 +719,20 @@ impl Renderer {
             .fg(self.theme.value)
             .add_modifier(Modifier::BOLD);
         center(buf, inner, inner.y + 4, "Press any key", prompt);
-        self.render_key_line(buf, inner, inner.y + 6, Action::Quit, "Quit");
+        self.render_key_line(buf, inner, inner.y + 6, Action::Settings, "Settings");
+        self.render_key_line(buf, inner, inner.y + 7, Action::Quit, "Quit");
     }
 
     fn render_paused(&mut self, buf: &mut Buffer, layout: &Layout) {
-        let inner = self.overlay(buf, layout, 7);
+        let inner = self.overlay(buf, layout, 8);
         let title = Style::new()
             .fg(self.theme.accent)
             .add_modifier(Modifier::BOLD);
         center(buf, inner, inner.y + 1, "PAUSED", title);
         self.render_key_line(buf, inner, inner.y + 3, Action::Pause, "Resume");
         self.render_key_line(buf, inner, inner.y + 4, Action::Restart, "Restart");
-        self.render_key_line(buf, inner, inner.y + 5, Action::Quit, "Quit");
+        self.render_key_line(buf, inner, inner.y + 5, Action::Settings, "Settings");
+        self.render_key_line(buf, inner, inner.y + 6, Action::Quit, "Quit");
     }
 
     fn render_game_over(
@@ -703,7 +743,7 @@ impl Renderer {
         rank: Option<usize>,
     ) {
         let shown = view.scores.entries().len().min(5) as u16;
-        let lines = 5 + if shown > 0 { shown + 2 } else { 0 } + 2;
+        let lines = 6 + if shown > 0 { shown + 2 } else { 0 } + 3;
         let inner = self.overlay(buf, layout, lines);
         let title = Style::new()
             .fg(self.theme.accent)
@@ -727,6 +767,12 @@ impl Renderer {
                 center(buf, inner, y, &self.scratch, label);
             }
             None => {}
+        }
+        y += 1;
+        if let Some(accuracy) = view.game.finesse().accuracy() {
+            self.scratch.clear();
+            let _ = write!(self.scratch, "Finesse {accuracy:.1}%");
+            center(buf, inner, y, &self.scratch, label);
         }
         y += 2;
         if shown > 0 && y + shown + 1 < inner.bottom() {
@@ -753,7 +799,177 @@ impl Renderer {
             y += 1;
         }
         self.render_key_line(buf, inner, y, Action::Restart, "Play again");
-        self.render_key_line(buf, inner, y + 1, Action::Quit, "Quit");
+        self.render_key_line(buf, inner, y + 1, Action::Settings, "Settings");
+        self.render_key_line(buf, inner, y + 2, Action::Quit, "Quit");
+    }
+
+    fn render_settings(&mut self, buf: &mut Buffer, area: Rect, menu: &SettingsMenu) {
+        let width = area.width.min(60);
+        let height = area.height.min(ITEMS.len() as u16 + 6);
+        let label = Style::new().fg(self.theme.label);
+        if width < 36 || height < 10 {
+            let y = area.y + area.height / 2;
+            let title = Style::new()
+                .fg(self.theme.accent)
+                .add_modifier(Modifier::BOLD);
+            center(buf, area, y.saturating_sub(1), "Terminal too small", title);
+            center(buf, area, y, "Settings need at least 36×10", label);
+            return;
+        }
+        let rect = Rect::new(
+            area.x + (area.width - width) / 2,
+            area.y + (area.height - height) / 2,
+            width,
+            height,
+        );
+        let block = self.theme.block(" SETTINGS ");
+        let inner = block.inner(rect);
+        block.render(rect, buf);
+
+        let list_height = inner.height.saturating_sub(3) as usize;
+        let cursor = menu.cursor();
+        let offset = if ITEMS.len() <= list_height {
+            0
+        } else {
+            cursor
+                .saturating_sub(list_height / 2)
+                .min(ITEMS.len() - list_height)
+        };
+        let value_style = Style::new()
+            .fg(self.theme.value)
+            .add_modifier(Modifier::BOLD);
+        let accent = Style::new()
+            .fg(self.theme.accent)
+            .add_modifier(Modifier::BOLD);
+        let warn = Style::new()
+            .fg(self.theme.warn)
+            .add_modifier(Modifier::BOLD);
+        let capture = menu.capture();
+
+        for (row, (index, item)) in ITEMS
+            .iter()
+            .enumerate()
+            .skip(offset)
+            .take(list_height)
+            .enumerate()
+        {
+            let y = inner.y + row as u16;
+            let selected = index == cursor;
+            if selected {
+                buf.set_style(
+                    Rect::new(inner.x, y, inner.width, 1),
+                    Style::new().bg(self.theme.highlight),
+                );
+                buf.set_string(inner.x + 1, y, "›", accent);
+            }
+            let left = inner.x + 3;
+            let right = inner.right().saturating_sub(2);
+            let (text, style) = match *item {
+                Item::Header(title) => {
+                    buf.set_string(inner.x + 1, y, title, accent);
+                    continue;
+                }
+                Item::Field(field) => {
+                    self.scratch.clear();
+                    let adjustable =
+                        !matches!(field, Field::Ghost | Field::FinesseRetry | Field::Colors);
+                    if selected && adjustable {
+                        self.scratch.push_str("‹ ");
+                    }
+                    menu.write_value(field, &mut self.scratch);
+                    if selected && adjustable {
+                        self.scratch.push_str(" ›");
+                    }
+                    (field.label(), value_style)
+                }
+                Item::Key(action) => {
+                    self.scratch.clear();
+                    let capturing = matches!(
+                        capture,
+                        Some(Capture::Replace(a) | Capture::Add(a)) if a == action
+                    );
+                    if capturing {
+                        self.scratch.push_str("Press a key…");
+                        (action.label(), accent)
+                    } else {
+                        menu.write_keys(action, &mut self.scratch);
+                        (action.label(), value_style)
+                    }
+                }
+                Item::Reset => {
+                    self.scratch.clear();
+                    ("Reset all to defaults", label)
+                }
+                Item::Back => {
+                    self.scratch.clear();
+                    ("Save and return", label)
+                }
+            };
+            let text_style = if selected {
+                Style::new().fg(self.theme.value)
+            } else {
+                label
+            };
+            buf.set_string(left, y, text, text_style);
+            let len = self.scratch.chars().count() as u16;
+            buf.set_string(right.saturating_sub(len), y, &self.scratch, style);
+        }
+
+        if offset > 0 {
+            buf.set_string(inner.right().saturating_sub(1), inner.y, "▲", label);
+        }
+        if offset + list_height < ITEMS.len() {
+            let y = inner.y + list_height as u16 - 1;
+            buf.set_string(inner.right().saturating_sub(1), y, "▼", label);
+        }
+
+        let footer = Rect::new(
+            inner.x + 1,
+            inner.bottom() - 2,
+            inner.width.saturating_sub(2),
+            2,
+        );
+        let item = menu.selected();
+        let (message, message_style) = match (menu.status(), capture) {
+            (_, Some(Capture::Add(action))) => {
+                self.scratch.clear();
+                let _ = write!(self.scratch, "Press a key to add to {}", action.label());
+                (self.scratch.as_str(), accent)
+            }
+            (_, Some(Capture::Replace(action))) => {
+                self.scratch.clear();
+                let _ = write!(self.scratch, "Press a key to bind {}", action.label());
+                (self.scratch.as_str(), accent)
+            }
+            (Some(status), None) => (status, warn),
+            (None, None) => (
+                match item {
+                    Item::Field(field) => field.description(),
+                    Item::Key(_) => "Enter replaces the keys, A adds another key",
+                    Item::Reset => "Restore every setting and key to its default",
+                    Item::Back => "Save changes to config.toml and go back",
+                    Item::Header(_) => "",
+                },
+                label,
+            ),
+        };
+        buf.set_stringn(
+            footer.x,
+            footer.y,
+            message,
+            footer.width as usize,
+            message_style,
+        );
+        let hint = match (capture, item) {
+            (Some(_), _) => "Any key binds it  ·  Ctrl+C quits",
+            (None, Item::Key(_)) => "Enter Rebind  A Add  Del Default  Esc Back",
+            (None, Item::Field(Field::Ghost | Field::FinesseRetry | Field::Colors)) => {
+                "↑↓ Select  Enter/←→ Toggle  Esc Save & back"
+            }
+            (None, Item::Field(_)) => "↑↓ Select  ←→ Adjust  Esc Save & back",
+            (None, _) => "↑↓ Select  Enter Confirm  Esc Save & back",
+        };
+        buf.set_stringn(footer.x, footer.y + 1, hint, footer.width as usize, label);
     }
 }
 
@@ -765,6 +981,7 @@ fn key_of(keys: &[String; Action::ALL.len()], action: Action) -> &str {
 enum Stat {
     Number(u64),
     Time(u64),
+    Percent(Option<f32>),
 }
 
 fn center(buf: &mut Buffer, area: Rect, y: u16, text: &str, style: Style) {
@@ -836,6 +1053,7 @@ mod tests {
         let game = Game::new(Settings::default(), Rng::new(5));
         let scores = HighScores::default();
         let mut renderer = Renderer::new(ColorMode::TrueColor, &Keymap::defaults());
+        let menu = SettingsMenu::new(crate::config::Config::default());
         for (w, h) in [(20, 5), (62, 22), (90, 30), (120, 50)] {
             let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
             for screen in [
@@ -843,6 +1061,7 @@ mod tests {
                 Screen::Playing,
                 Screen::Paused,
                 Screen::GameOver { rank: Some(0) },
+                Screen::Settings,
             ] {
                 let view = View {
                     game: &game,
@@ -850,6 +1069,7 @@ mod tests {
                     scores: &scores,
                     ghost: true,
                     preview_count: 5,
+                    menu: Some(&menu),
                 };
                 terminal
                     .draw(|frame| renderer.render(frame, &view))

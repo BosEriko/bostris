@@ -2,11 +2,13 @@ mod app;
 mod bag;
 mod board;
 mod config;
+mod finesse;
 mod game;
 mod highscores;
 mod input;
 mod piece;
 mod scoring;
+mod settings;
 mod ui;
 
 use std::io::{self, Write};

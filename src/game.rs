@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::bag::{Randomizer, Rng};
 use crate::board::{Board, VISIBLE_HEIGHT};
+use crate::finesse::{self, Fault, Stats as FinesseStats};
 use crate::piece::{Kind, Piece, kicks};
 use crate::scoring::{ClearEvent, Scoring, gravity_cells_per_second};
 
@@ -16,6 +17,7 @@ pub struct Settings {
     pub max_lock_resets: u32,
     pub line_clear_delay: Duration,
     pub soft_drop_factor: f64,
+    pub finesse_retry: bool,
 }
 
 impl Default for Settings {
@@ -26,6 +28,7 @@ impl Default for Settings {
             max_lock_resets: 15,
             line_clear_delay: Duration::from_millis(250),
             soft_drop_factor: 20.0,
+            finesse_retry: false,
         }
     }
 }
@@ -38,8 +41,14 @@ pub enum Phase {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToastEvent {
+    Clear(ClearEvent),
+    Fault { fault: Fault, retry: bool },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Toast {
-    pub event: ClearEvent,
+    pub event: ToastEvent,
     pub age: Duration,
 }
 
@@ -61,6 +70,10 @@ pub struct Game {
     elapsed: Duration,
     toast: Option<Toast>,
     pieces: u32,
+    inputs: u32,
+    spawns: u32,
+    drop_points: u64,
+    finesse: FinesseStats,
     revision: u64,
 }
 
@@ -86,6 +99,10 @@ impl Game {
             elapsed: Duration::ZERO,
             toast: None,
             pieces: 0,
+            inputs: 0,
+            spawns: 0,
+            drop_points: 0,
+            finesse: FinesseStats::default(),
             revision: 0,
         };
         game.spawn(first);
@@ -142,6 +159,25 @@ impl Game {
         self.pieces
     }
 
+    pub fn finesse(&self) -> FinesseStats {
+        self.finesse
+    }
+
+    pub fn set_settings(&mut self, settings: Settings) {
+        self.settings = settings;
+        self.touch();
+    }
+
+    pub fn spawn_id(&self) -> u32 {
+        self.spawns
+    }
+
+    pub fn note_input(&mut self) {
+        if self.phase == Phase::Falling {
+            self.inputs += 1;
+        }
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -170,6 +206,9 @@ impl Game {
         self.lock_timer = Duration::ZERO;
         self.lock_resets = 0;
         self.lowest_y = self.active.y;
+        self.inputs = 0;
+        self.spawns = self.spawns.wrapping_add(1);
+        self.drop_points = 0;
         self.phase = if self.board.collides(&self.active) {
             Phase::Over
         } else {
@@ -253,8 +292,13 @@ impl Game {
             return false;
         }
         self.gravity_acc = 0.0;
-        self.scoring.soft_drop(1);
+        self.add_soft_drop_point();
         true
+    }
+
+    fn add_soft_drop_point(&mut self) {
+        self.scoring.soft_drop(1);
+        self.drop_points += 1;
     }
 
     pub fn set_soft_drop(&mut self, active: bool) {
@@ -267,8 +311,9 @@ impl Game {
         }
         let distance = self.board.drop_distance(&self.active);
         self.active = self.active.shifted(0, -distance);
-        self.scoring.hard_drop(distance as u32);
-        self.lock_piece();
+        if self.lock_piece() {
+            self.scoring.hard_drop(distance as u32);
+        }
     }
 
     pub fn hold(&mut self) -> bool {
@@ -284,7 +329,30 @@ impl Game {
         true
     }
 
-    fn lock_piece(&mut self) {
+    fn check_finesse(&mut self) -> Option<Fault> {
+        let result = finesse::evaluate(&self.board, &self.active, self.inputs)?;
+        self.finesse.evaluated += 1;
+        let fault = result.err()?;
+        self.finesse.faults += 1;
+        self.toast = Some(Toast {
+            event: ToastEvent::Fault {
+                fault,
+                retry: self.settings.finesse_retry,
+            },
+            age: Duration::ZERO,
+        });
+        self.touch();
+        Some(fault)
+    }
+
+    fn lock_piece(&mut self) -> bool {
+        let fault = self.check_finesse();
+        if fault.is_some() && self.settings.finesse_retry {
+            self.scoring.revoke(self.drop_points);
+            let kind = self.active.kind;
+            self.spawn(kind);
+            return false;
+        }
         let locked_out = self
             .active
             .cells()
@@ -295,12 +363,14 @@ impl Game {
         self.touch();
         if locked_out {
             self.phase = Phase::Over;
-            return;
+            return true;
         }
         let rows = self.board.full_rows();
-        if let Some(event) = self.scoring.lock(rows.count_ones()) {
+        if let Some(event) = self.scoring.lock(rows.count_ones())
+            && fault.is_none()
+        {
             self.toast = Some(Toast {
-                event,
+                event: ToastEvent::Clear(event),
                 age: Duration::ZERO,
             });
         }
@@ -314,6 +384,7 @@ impl Game {
                 elapsed: Duration::ZERO,
             };
         }
+        true
     }
 
     fn finish_clear(&mut self, rows: u64) {
@@ -365,7 +436,7 @@ impl Game {
             }
             self.gravity_acc -= 1.0;
             if self.soft_drop {
-                self.scoring.soft_drop(1);
+                self.add_soft_drop_point();
             }
         }
         if !self.on_ground() {
@@ -392,6 +463,7 @@ impl Game {
         self.lowest_y = piece.y;
         self.lock_resets = 0;
         self.lock_timer = Duration::ZERO;
+        self.inputs = 0;
     }
 }
 
@@ -612,7 +684,10 @@ mod tests {
         assert_eq!(game.board().get(0, 0), None);
         assert_eq!(game.board().get(1, 0), Some(Kind::Z));
         assert_eq!(game.board().full_rows(), 0);
-        assert_eq!(game.toast().unwrap().event.lines, 4);
+        assert!(matches!(
+            game.toast().unwrap().event,
+            ToastEvent::Clear(ClearEvent { lines: 4, .. })
+        ));
     }
 
     #[test]
@@ -751,5 +826,90 @@ mod tests {
         let elapsed = game.elapsed();
         game.tick(TICK);
         assert_eq!(game.elapsed(), elapsed);
+    }
+
+    fn finesse_game(retry: bool) -> Game {
+        Game::new(
+            Settings {
+                finesse_retry: retry,
+                ..settings()
+            },
+            Rng::new(3),
+        )
+    }
+
+    #[test]
+    fn optimal_placement_is_not_a_fault() {
+        let mut game = finesse_game(false);
+        game.set_active(piece(Kind::T, Rotation::Spawn, 3, 10));
+        game.note_input();
+        game.shift(-1);
+        game.hard_drop();
+        let stats = game.finesse();
+        assert_eq!((stats.evaluated, stats.faults), (1, 0));
+        assert!(game.toast().is_none());
+    }
+
+    #[test]
+    fn extra_inputs_count_as_fault() {
+        let mut game = finesse_game(false);
+        game.set_active(piece(Kind::T, Rotation::Spawn, 3, 10));
+        for _ in 0..3 {
+            game.note_input();
+            game.rotate(true);
+        }
+        game.hard_drop();
+        let stats = game.finesse();
+        assert_eq!((stats.evaluated, stats.faults), (1, 1));
+        assert_eq!(game.pieces_placed(), 1);
+        assert!(matches!(
+            game.toast().unwrap().event,
+            ToastEvent::Fault {
+                fault: Fault {
+                    used: 3,
+                    optimal: 1
+                },
+                retry: false
+            }
+        ));
+    }
+
+    #[test]
+    fn retry_on_fault_respawns_same_piece() {
+        let mut game = finesse_game(true);
+        game.set_active(piece(Kind::T, Rotation::Spawn, 3, 10));
+        let next = game.preview().next().unwrap();
+        game.soft_drop_step();
+        for _ in 0..3 {
+            game.note_input();
+            game.shift(-1);
+        }
+        game.note_input();
+        game.shift(1);
+        game.hard_drop();
+        assert_eq!(game.pieces_placed(), 0);
+        assert_eq!(game.scoring().score, 0);
+        assert_eq!(game.board(), &Board::default());
+        let active = *game.active().unwrap();
+        assert_eq!(active, Piece::spawn(Kind::T));
+        assert_eq!(game.preview().next(), Some(next));
+        assert_eq!(game.finesse().faults, 1);
+        game.note_input();
+        game.shift(-1);
+        game.hard_drop();
+        assert_eq!(game.pieces_placed(), 1);
+        assert_eq!(game.finesse().faults, 1);
+        assert_eq!(game.finesse().evaluated, 2);
+    }
+
+    #[test]
+    fn spawn_resets_input_count() {
+        let mut game = finesse_game(false);
+        for _ in 0..5 {
+            game.note_input();
+        }
+        assert!(game.hold());
+        game.hard_drop();
+        assert_eq!(game.finesse().faults, 0);
     }
 }

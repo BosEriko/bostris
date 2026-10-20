@@ -13,11 +13,12 @@ pub enum Action {
     Hold,
     Pause,
     Restart,
+    Settings,
     Quit,
 }
 
 impl Action {
-    pub const ALL: [Action; 10] = [
+    pub const ALL: [Action; 11] = [
         Action::Left,
         Action::Right,
         Action::SoftDrop,
@@ -27,6 +28,7 @@ impl Action {
         Action::Hold,
         Action::Pause,
         Action::Restart,
+        Action::Settings,
         Action::Quit,
     ];
 
@@ -41,7 +43,24 @@ impl Action {
             Action::Hold => "hold",
             Action::Pause => "pause",
             Action::Restart => "restart",
+            Action::Settings => "settings",
             Action::Quit => "quit",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Action::Left => "Move left",
+            Action::Right => "Move right",
+            Action::SoftDrop => "Soft drop",
+            Action::HardDrop => "Hard drop",
+            Action::RotateCw => "Rotate ↻",
+            Action::RotateCcw => "Rotate ↺",
+            Action::Hold => "Hold",
+            Action::Pause => "Pause",
+            Action::Restart => "Restart",
+            Action::Settings => "Settings",
+            Action::Quit => "Quit",
         }
     }
 
@@ -56,6 +75,7 @@ impl Action {
             Action::Hold => &["c"],
             Action::Pause => &["p", "Esc"],
             Action::Restart => &["r"],
+            Action::Settings => &["s"],
             Action::Quit => &["q"],
         }
     }
@@ -96,6 +116,42 @@ pub fn parse_key(name: &str) -> Option<KeyCode> {
     Some(code)
 }
 
+pub fn normalize(code: KeyCode) -> KeyCode {
+    match code {
+        KeyCode::Char(c) => KeyCode::Char(c.to_ascii_lowercase()),
+        other => other,
+    }
+}
+
+pub fn is_quit_chord(event: &KeyEvent) -> bool {
+    event.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(event.code, KeyCode::Char('c') | KeyCode::Char('C'))
+}
+
+pub fn key_name(code: KeyCode) -> Option<String> {
+    let name = match code {
+        KeyCode::Left => "Left",
+        KeyCode::Right => "Right",
+        KeyCode::Up => "Up",
+        KeyCode::Down => "Down",
+        KeyCode::Char(' ') => "Space",
+        KeyCode::Char(c) => return Some(c.to_string()),
+        KeyCode::Esc => "Esc",
+        KeyCode::Enter => "Enter",
+        KeyCode::Tab => "Tab",
+        KeyCode::Backspace => "Backspace",
+        KeyCode::Home => "Home",
+        KeyCode::End => "End",
+        KeyCode::PageUp => "PageUp",
+        KeyCode::PageDown => "PageDown",
+        KeyCode::Insert => "Insert",
+        KeyCode::Delete => "Delete",
+        KeyCode::F(n) if (1..=12).contains(&n) => return Some(format!("F{n}")),
+        _ => return None,
+    };
+    Some(name.to_owned())
+}
+
 pub fn key_label(code: KeyCode) -> String {
     match code {
         KeyCode::Left => "←".into(),
@@ -108,6 +164,12 @@ pub fn key_label(code: KeyCode) -> String {
         KeyCode::Enter => "Enter".into(),
         KeyCode::Tab => "Tab".into(),
         KeyCode::Backspace => "Bksp".into(),
+        KeyCode::Home => "Home".into(),
+        KeyCode::End => "End".into(),
+        KeyCode::PageUp => "PgUp".into(),
+        KeyCode::PageDown => "PgDn".into(),
+        KeyCode::Insert => "Ins".into(),
+        KeyCode::Delete => "Del".into(),
         KeyCode::F(n) => format!("F{n}"),
         other => format!("{other:?}"),
     }
@@ -118,38 +180,55 @@ pub struct Keymap {
     bindings: Vec<(KeyCode, Action)>,
 }
 
+impl PartialEq for Keymap {
+    fn eq(&self, other: &Self) -> bool {
+        Action::ALL
+            .into_iter()
+            .all(|action| self.keys_for(action).eq(other.keys_for(action)))
+    }
+}
+
+impl Eq for Keymap {}
+
 impl Keymap {
     pub fn bind(&mut self, code: KeyCode, action: Action) {
         self.bindings.retain(|&(c, _)| c != code);
         self.bindings.push((code, action));
     }
 
+    pub fn clear(&mut self, action: Action) {
+        self.bindings.retain(|&(_, a)| a != action);
+    }
+
+    pub fn bind_defaults(&mut self, action: Action) {
+        for key in action.default_keys() {
+            if let Some(code) = parse_key(key) {
+                self.bind(code, action);
+            }
+        }
+    }
+
+    pub fn owner(&self, code: KeyCode) -> Option<Action> {
+        let code = normalize(code);
+        self.bindings
+            .iter()
+            .find(|&&(c, _)| c == code)
+            .map(|&(_, action)| action)
+    }
+
     pub fn defaults() -> Self {
         let mut keymap = Self::default();
         for action in Action::ALL {
-            for key in action.default_keys() {
-                if let Some(code) = parse_key(key) {
-                    keymap.bind(code, action);
-                }
-            }
+            keymap.bind_defaults(action);
         }
         keymap
     }
 
     pub fn action(&self, event: &KeyEvent) -> Option<Action> {
-        if event.modifiers.contains(KeyModifiers::CONTROL)
-            && matches!(event.code, KeyCode::Char('c') | KeyCode::Char('C'))
-        {
+        if is_quit_chord(event) {
             return Some(Action::Quit);
         }
-        let code = match event.code {
-            KeyCode::Char(c) => KeyCode::Char(c.to_ascii_lowercase()),
-            other => other,
-        };
-        self.bindings
-            .iter()
-            .find(|&&(c, _)| c == code)
-            .map(|&(_, action)| action)
+        self.owner(event.code)
     }
 
     pub fn keys_for(&self, action: Action) -> impl Iterator<Item = KeyCode> + '_ {
@@ -341,6 +420,23 @@ mod tests {
     }
 
     #[test]
+    fn key_names_round_trip() {
+        let codes = [
+            KeyCode::Left,
+            KeyCode::Char(' '),
+            KeyCode::Char('x'),
+            KeyCode::Char('"'),
+            KeyCode::Esc,
+            KeyCode::PageDown,
+            KeyCode::F(12),
+        ];
+        for code in codes {
+            assert_eq!(parse_key(&key_name(code).unwrap()), Some(code));
+        }
+        assert_eq!(key_name(KeyCode::F(20)), None);
+    }
+
+    #[test]
     fn default_keymap_matches_controls() {
         let keymap = Keymap::defaults();
         let event = |code| KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Press);
@@ -358,6 +454,10 @@ mod tests {
             Some(Action::HardDrop)
         );
         assert_eq!(keymap.action(&event(KeyCode::Esc)), Some(Action::Pause));
+        assert_eq!(
+            keymap.action(&event(KeyCode::Char('s'))),
+            Some(Action::Settings)
+        );
         assert_eq!(keymap.action(&event(KeyCode::Char('k'))), None);
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert_eq!(keymap.action(&ctrl_c), Some(Action::Quit));

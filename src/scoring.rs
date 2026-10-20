@@ -36,6 +36,10 @@ impl Scoring {
         self.score += u64::from(cells);
     }
 
+    pub fn revoke(&mut self, points: u64) {
+        self.score = self.score.saturating_sub(points);
+    }
+
     pub fn hard_drop(&mut self, cells: u32) {
         self.score += 2 * u64::from(cells);
     }
