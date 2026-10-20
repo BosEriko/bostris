@@ -1,0 +1,18 @@
+[package]
+name = "bostris"
+version = "0.1.0"
+edition = "2024"
+description = "A fast, polished Tetris for the terminal"
+license = "MIT"
+readme = "README.md"
+
+[dependencies]
+dirs = "7"
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
