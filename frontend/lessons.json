@@ -1,0 +1,665 @@
+[
+  {
+    "id": "tki-castle",
+    "title": "TKI 3 · Castle Top",
+    "category": "opener",
+    "difficulty": "Beginner",
+    "summary": "Build the first-bag T-Spin Double of the Castle Top variation. Later bags extend it into more spins.",
+    "when": "Look for an early I; learn the mirror for the opposite piece order.",
+    "steps": [
+      "Lay I horizontally near the middle, then build the L support at the left wall.",
+      "Fit O in the right corner and S beside it. Place Z across the I to shape the roof.",
+      "Stand J above O. The diagram shows all seven pieces immediately before the first double clears.",
+      "Bring T into the left cavity and finish with a rotation before locking."
+    ],
+    "tips": [
+      "Practice checks the first bag, not the entire multi-bag opener.",
+      "After the first double, study the remaining surface instead of memorizing only an opening picture."
+    ],
+    "source": "https://harddrop.com/wiki/TKI_3_Opening",
+    "diagram": [
+      ".........J",
+      ".........J",
+      "L..ZZ.S.JJ",
+      "LTTTZZSSOO",
+      "LLTIIIISOO"
+    ],
+    "practice": "opener-build",
+    "placements": [
+      {
+        "kind": "I",
+        "rotation": 0,
+        "x": 3,
+        "y": -2
+      },
+      {
+        "kind": "L",
+        "rotation": 1,
+        "x": -1,
+        "y": 0
+      },
+      {
+        "kind": "O",
+        "rotation": 0,
+        "x": 7,
+        "y": -1
+      },
+      {
+        "kind": "S",
+        "rotation": 1,
+        "x": 5,
+        "y": 0
+      },
+      {
+        "kind": "Z",
+        "rotation": 0,
+        "x": 3,
+        "y": 0
+      },
+      {
+        "kind": "J",
+        "rotation": 3,
+        "x": 8,
+        "y": 2
+      },
+      {
+        "kind": "T",
+        "rotation": 2,
+        "x": 1,
+        "y": 0
+      }
+    ]
+  },
+  {
+    "id": "dt-cannon",
+    "title": "DT Cannon",
+    "category": "opener",
+    "difficulty": "Intermediate",
+    "summary": "A T-Spin Double followed by a T-Spin Triple. The initial T helps construct the setup.",
+    "when": "Choose an LS or JZ base when the opening queue supports it.",
+    "steps": [
+      "Read the first bag and choose the matching base in the source diagrams.",
+      "Keep the entry channel open while building the double above the triple cavity.",
+      "Use the next T for the double, then rotate a later T into the exposed triple.",
+      "Continue into ordinary stacking, another spin pattern, or a perfect-clear branch."
+    ],
+    "tips": [
+      "Free practice is a sandbox; it does not validate a complete DT Cannon.",
+      "Learn the entry rotations before trying to build this quickly."
+    ],
+    "source": "https://four.lol/methods/dt-cannon/",
+    "diagram": null,
+    "practice": "opener-sandbox"
+  },
+  {
+    "id": "pco",
+    "title": "Perfect Clear Opener",
+    "category": "opener",
+    "difficulty": "Beginner",
+    "summary": "Arrange the first bag to leave a four-row puzzle for the second bag. A perfect clear is a possible finish, not a guarantee.",
+    "when": "Useful when you want to practice reading small empty regions.",
+    "steps": [
+      "Combine J, O, and L into the rectangular side of the setup.",
+      "Build the staggered T, S, and Z shape on the other side.",
+      "Keep I available when possible; the displayed variant places it vertically.",
+      "Inspect the next pieces and fill the gap without leaving isolated holes."
+    ],
+    "tips": [
+      "The diagram is a first-bag reference, not a guaranteed solution.",
+      "Switch to normal stacking if the queue or incoming garbage spoils the clear."
+    ],
+    "source": "https://harddrop.com/wiki/Perfect_Clear_Opener",
+    "diagram": [
+      "LLLI....SS",
+      "LOOI...SST",
+      "JOOI..ZZTT",
+      "JJJI...ZZT"
+    ],
+    "practice": "opener-sandbox"
+  },
+  {
+    "id": "grace-system",
+    "title": "Grace System",
+    "category": "opener",
+    "difficulty": "Intermediate",
+    "summary": "An alternative first perfect-clear setup that can complement PCO when its initial construction fits.",
+    "when": "Consider it when you can assemble its rectangle while saving T.",
+    "steps": [
+      "Compare your starting queue with the source setup before committing.",
+      "Build the six-column, four-row rectangle and preserve the T when possible.",
+      "Read the remaining four-column region against the next pieces.",
+      "Choose a compatible solve or leave a manageable stack if no solve is available."
+    ],
+    "tips": [
+      "Holding T and holding I lead to different perfect-clear problems.",
+      "Free practice does not judge whether you reproduced Grace System."
+    ],
+    "source": "https://four.lol/perfect-clears/1st/",
+    "diagram": null,
+    "practice": "opener-sandbox"
+  },
+  {
+    "id": "mko",
+    "title": "MKO Stacking",
+    "category": "opener",
+    "difficulty": "Intermediate",
+    "summary": "An early L/J setup with perfect-clear opportunities and T-Spin continuations.",
+    "when": "Use it when L and J can be placed before their supported S/Z pieces.",
+    "steps": [
+      "Use the diagram to build the first-bag base; keep T in hold.",
+      "Check the second bag for a four-line perfect-clear solution.",
+      "If the solve is unavailable, make a T-slot and continue with doubles.",
+      "Flatten the residue into a sustainable midgame stack."
+    ],
+    "tips": [
+      "An early second T can make the continuation awkward.",
+      "The shown base intentionally contains six pieces: its T is held."
+    ],
+    "source": "https://four.lol/openers/mko/",
+    "diagram": [
+      "S.....Z..I",
+      "SS...ZZ..I",
+      "JS...ZLOOI",
+      "JJJ.LLLOOI"
+    ],
+    "practice": "opener-sandbox"
+  },
+  {
+    "id": "albatross",
+    "title": "Albatross Special",
+    "category": "opener",
+    "difficulty": "Intermediate",
+    "summary": "Learn the first-bag platform T-Spin Double. The wider opener can continue with a triple.",
+    "when": "An early O makes the platform practical; choose the mirror from the J/L order.",
+    "steps": [
+      "Place O near the left, I against the right wall, and S at the left wall.",
+      "Use L to support J; put Z above the O/L side to form the roof.",
+      "Rotate T beneath the roof to complete the two filled rows shown in the diagram.",
+      "Study the triple continuation separately after mastering this first bag."
+    ],
+    "tips": [
+      "This practice checks the first double only.",
+      "Garbage can disrupt the later triple."
+    ],
+    "source": "https://harddrop.com/wiki/Albatross_Special",
+    "diagram": [
+      "...ZZ....I",
+      "STTTZZJJJI",
+      "SSTOOLLLJI",
+      ".S.OOL...I"
+    ],
+    "practice": "opener-build",
+    "placements": [
+      {
+        "kind": "O",
+        "rotation": 0,
+        "x": 2,
+        "y": -1
+      },
+      {
+        "kind": "I",
+        "rotation": 1,
+        "x": 7,
+        "y": 0
+      },
+      {
+        "kind": "S",
+        "rotation": 1,
+        "x": -1,
+        "y": 0
+      },
+      {
+        "kind": "L",
+        "rotation": 2,
+        "x": 5,
+        "y": 0
+      },
+      {
+        "kind": "J",
+        "rotation": 2,
+        "x": 6,
+        "y": 1
+      },
+      {
+        "kind": "Z",
+        "rotation": 0,
+        "x": 3,
+        "y": 1
+      },
+      {
+        "kind": "T",
+        "rotation": 2,
+        "x": 1,
+        "y": 1
+      }
+    ]
+  },
+  {
+    "id": "hachispin",
+    "title": "Hachispin",
+    "category": "opener",
+    "difficulty": "Intermediate",
+    "summary": "Start with a T-Spin Single, develop a triple, and look for a perfect-clear continuation.",
+    "when": "A useful early-O alternative when your usual TKI or DT base does not fit.",
+    "steps": [
+      "Choose the source first-bag pattern that matches your queue.",
+      "Build and execute its opening single without burying the next entry.",
+      "Select the second-bag triple construction from the pieces you receive.",
+      "After the triple, attempt a matching perfect clear or return to ordinary stacking."
+    ],
+    "tips": [
+      "A perfect-clear branch is optional, not assured.",
+      "The setup restricts downstacking until the triple is executed."
+    ],
+    "source": "https://four.lol/openers/hachispin/",
+    "diagram": null,
+    "practice": "opener-sandbox"
+  },
+  {
+    "id": "sdpc",
+    "title": "Single Double PC",
+    "category": "opener",
+    "difficulty": "Intermediate",
+    "summary": "A single-to-double opener with optional extra-spin and perfect-clear continuations.",
+    "when": "Consider it with an early O and time to perform the required soft drops.",
+    "steps": [
+      "Build the opening horizontal T-Spin Single shown in the source.",
+      "Preserve the remaining structure for the second-bag double.",
+      "Read the third bag for a compatible perfect-clear solve.",
+      "Keep the field clean enough to continue stacking when the solve does not fit."
+    ],
+    "tips": [
+      "This is related to Stickspin, but the opening T is used differently.",
+      "Free practice is ungraded and does not confirm the whole sequence."
+    ],
+    "source": "https://four.lol/openers/sd-pc/",
+    "diagram": null,
+    "practice": "opener-sandbox"
+  },
+  {
+    "id": "stickspin",
+    "title": "Stickspin · First Single",
+    "category": "opener",
+    "difficulty": "Intermediate",
+    "summary": "Build Stickspin’s first-bag vertical T-Spin Single. Later bags develop a double and a triple.",
+    "when": "The O needs to support the right-hand structure before the relevant S or T.",
+    "steps": [
+      "Stand I against the left wall. Fit L and J beside it.",
+      "Place O in the right corner, then Z along the floor beside O.",
+      "Stand S above O and rotate T into the vertical slot.",
+      "Lock T to clear the first single. The diagram shows this moment before the clear."
+    ],
+    "tips": [
+      "Success here means the first bag is complete, not the entire Stickspin.",
+      "Learn the second-bag double before attempting the full three-bag sequence."
+    ],
+    "source": "https://harddrop.com/wiki/Stickspin",
+    "diagram": [
+      "........S.",
+      "I......TSS",
+      "ILJ....TTS",
+      "ILJJJZZTOO",
+      "ILL...ZZOO"
+    ],
+    "practice": "opener-build",
+    "placements": [
+      {
+        "kind": "I",
+        "rotation": 1,
+        "x": -2,
+        "y": 0
+      },
+      {
+        "kind": "L",
+        "rotation": 1,
+        "x": 0,
+        "y": 0
+      },
+      {
+        "kind": "J",
+        "rotation": 0,
+        "x": 2,
+        "y": 0
+      },
+      {
+        "kind": "O",
+        "rotation": 0,
+        "x": 7,
+        "y": -1
+      },
+      {
+        "kind": "Z",
+        "rotation": 0,
+        "x": 5,
+        "y": -1
+      },
+      {
+        "kind": "S",
+        "rotation": 1,
+        "x": 7,
+        "y": 2
+      },
+      {
+        "kind": "T",
+        "rotation": 1,
+        "x": 6,
+        "y": 1
+      }
+    ]
+  },
+  {
+    "id": "bt-cannon",
+    "title": "BT Cannon",
+    "category": "opener",
+    "difficulty": "Advanced",
+    "summary": "An offset double-to-triple construction with longer C-Spin and perfect-clear branches.",
+    "when": "Study it after you can recognize ordinary DT Cannon cavities.",
+    "steps": [
+      "Identify the double slot and the offset hole underneath it in the source diagram.",
+      "Build the first bags without sealing the T entry.",
+      "Execute the double, then the triple revealed below it.",
+      "Choose the correct C-Spin branch only if the later queue and field allow it."
+    ],
+    "tips": [
+      "Learn one branch at a time rather than memorizing a five-bag picture.",
+      "Its shape is related to DT Cannon, but the placements are not interchangeable."
+    ],
+    "source": "https://four.lol/methods/bt-cannon/",
+    "diagram": null,
+    "practice": "opener-sandbox"
+  },
+  {
+    "id": "c-spin",
+    "title": "C-Spin",
+    "category": "opener",
+    "difficulty": "Advanced",
+    "summary": "A triple-to-double attack built around a C-shaped J/L overhang.",
+    "when": "The common ZST-core opener is worth studying when S and Z arrive early.",
+    "steps": [
+      "Use S, Z, and T to form the low central core in the reference diagram.",
+      "Build the J/L overhang without blocking the triple entry.",
+      "Stack the second bag to complete the triple and its exit.",
+      "Execute the triple, then use the remaining cavity for a double."
+    ],
+    "tips": [
+      "The diagram is the first-bag base, not the finished attack.",
+      "The second bag often requires adaptation rather than one fixed sequence."
+    ],
+    "source": "https://harddrop.com/wiki/C-Spin",
+    "diagram": [
+      "JJ........",
+      "J.........",
+      "J.TTT.....",
+      "L..TS...OO",
+      "L.ZZSS..OO",
+      "LL.ZZSIIII"
+    ],
+    "practice": "opener-sandbox"
+  },
+  {
+    "id": "pelican",
+    "title": "Pelican",
+    "category": "opener",
+    "difficulty": "Advanced",
+    "summary": "A platform-double alternative for awkward S/Z/T starts, with related triple continuations.",
+    "when": "Compare J and L arrival order before choosing which side to build.",
+    "steps": [
+      "Choose the side from the early J/L order.",
+      "Prop S for the left-facing version, or Z for the mirror.",
+      "Keep the platform entry open and finish the double with T.",
+      "Use the source continuation only when its required second-bag pieces fit."
+    ],
+    "tips": [
+      "This is related to Albatross but uses a different base.",
+      "Do not force the triple after the structure has been disrupted."
+    ],
+    "source": "https://harddrop.com/wiki/Albatross_Special#Pelican_Opener",
+    "diagram": null,
+    "practice": "opener-sandbox"
+  },
+  {
+    "id": "side-four-wide",
+    "title": "Side 4-Wide",
+    "category": "opener",
+    "difficulty": "Intermediate",
+    "summary": "Leave a four-column combo well beside a six-column stack.",
+    "when": "Practice consecutive single clears rather than one large attack.",
+    "steps": [
+      "Keep four columns open along an edge while stacking the other six.",
+      "Preserve a small residue inside the well.",
+      "Place each successive piece to clear a line and continue the combo.",
+      "Stop building upward when you need to defend or downstack."
+    ],
+    "tips": [
+      "A tall side stack can be topped out before its combo is ready.",
+      "A misplaced piece that clears nothing ends the combo."
+    ],
+    "source": "https://tetris.wiki/4-Wide",
+    "diagram": null,
+    "practice": "opener-sandbox"
+  },
+  {
+    "id": "center-four-wide",
+    "title": "Center 4-Wide",
+    "category": "opener",
+    "difficulty": "Advanced",
+    "summary": "Build two side towers around a four-column central combo well.",
+    "when": "Study it after learning the piece sequences of a side 4-wide.",
+    "steps": [
+      "Reserve the central four columns for the combo.",
+      "Build three-column towers on both sides while keeping their surfaces manageable.",
+      "Preserve the well’s residue and clear with consecutive pieces.",
+      "Watch both tower heights and abandon the setup when defense requires it."
+    ],
+    "tips": [
+      "The well uses the same combo ideas as side 4-wide.",
+      "Keeping two narrow towers balanced is harder than building one broad stack."
+    ],
+    "source": "https://tetris.wiki/4-Wide",
+    "diagram": null,
+    "practice": "opener-sandbox"
+  },
+  {
+    "id": "spin-zero",
+    "title": "T-Spin · Recognition",
+    "category": "spin",
+    "difficulty": "Beginner",
+    "summary": "A T-spin can count even when it clears no line.",
+    "when": "Learn recognition before larger clears.",
+    "steps": [
+      "Find the T’s center and its four diagonal corners.",
+      "Fill three corners. Make your last successful movement a rotation.",
+      "Lock without shifting or falling afterward."
+    ],
+    "tips": [
+      "Walls and the floor count as occupied space.",
+      "A full spin and a mini have different front-corner requirements."
+    ],
+    "source": "https://www.tetris.wiki/T-Spin",
+    "diagram": null,
+    "practice": "t-spin-zero"
+  },
+  {
+    "id": "spin-single",
+    "title": "T-Spin Single",
+    "category": "spin",
+    "difficulty": "Beginner",
+    "summary": "Rotate T into a three-corner cavity that completes one row.",
+    "when": "Use a single when the surrounding stack cannot support a double.",
+    "steps": [
+      "Bring T to the slot’s entrance.",
+      "Rotate into the cavity and check the corners.",
+      "Lock after the rotation while completing exactly one row."
+    ],
+    "tips": [
+      "A single is about rows cleared, not the T’s orientation.",
+      "A final downward movement can remove spin recognition."
+    ],
+    "source": "https://www.tetris.wiki/T-Spin",
+    "diagram": null,
+    "practice": "t-spin-single"
+  },
+  {
+    "id": "spin-double",
+    "title": "T-Spin Double",
+    "category": "spin",
+    "difficulty": "Intermediate",
+    "summary": "Fill a T-shaped cavity to clear two rows with a recognized rotation.",
+    "when": "A compact way to attack while keeping the stack low.",
+    "steps": [
+      "Approach the cavity without sealing its entrance.",
+      "Soft drop to its mouth, then rotate under the overhang.",
+      "Lock after the final rotation completes two rows."
+    ],
+    "tips": [
+      "The two rows must already be nearly complete.",
+      "Practice the mirrored slot as well."
+    ],
+    "source": "https://www.tetris.wiki/T-Spin",
+    "diagram": null,
+    "practice": "t-spin-double"
+  },
+  {
+    "id": "spin-mini",
+    "title": "T-Spin Mini",
+    "category": "spin",
+    "difficulty": "Intermediate",
+    "summary": "Recognize a three-corner T placement with only one occupied front corner.",
+    "when": "Useful for understanding why a move scores as a mini rather than a full spin.",
+    "steps": [
+      "Identify the two corners on the side the T points toward.",
+      "Rotate into a position with three occupied corners overall.",
+      "Lock and compare the front corners with a full T-spin cavity."
+    ],
+    "tips": [
+      "The special final SRS kick can upgrade some placements to full spins.",
+      "A mini is a scoring classification, not simply a small-looking rotation."
+    ],
+    "source": "https://harddrop.com/wiki/T-Spin",
+    "diagram": null,
+    "practice": "t-spin-mini"
+  },
+  {
+    "id": "spin-triple",
+    "title": "T-Spin Triple",
+    "category": "spin",
+    "difficulty": "Advanced",
+    "summary": "Use an SRS kick to rotate T into a tall cavity and complete three rows.",
+    "when": "Study this before attempting the second attack of a DT Cannon.",
+    "steps": [
+      "Check that three rows can be completed by a vertical T.",
+      "Approach beneath the overhang using the orientation shown by the source.",
+      "Rotate to trigger the kick into the deep cavity, then lock after the final rotation.",
+      "Trace the entry first; this reference lesson has no preset triple challenge."
+    ],
+    "tips": [
+      "A tall T-shaped hole alone does not guarantee a reachable triple.",
+      "The wall opposite the overhang can affect whether the entry works."
+    ],
+    "source": "https://tetris.wiki/T-Spin_Triple_Setups",
+    "diagram": null,
+    "practice": null
+  },
+  {
+    "id": "spin-i-wall",
+    "title": "I-Piece Wall Kick",
+    "category": "spin",
+    "difficulty": "Intermediate",
+    "summary": "Rotate I beside a wall and let its dedicated kick table shift it into a legal position.",
+    "when": "Useful when a long piece seems unable to turn near the edge.",
+    "steps": [
+      "Move I toward the wall in the starting orientation.",
+      "Try the requested quarter-turn and observe the sideways adjustment.",
+      "Place it in the target footprint after the kick."
+    ],
+    "tips": [
+      "I uses different kick offsets from J, L, S, T, and Z.",
+      "Clockwise and counterclockwise routes need not produce the same result."
+    ],
+    "source": "https://www.tetris.wiki/SRS",
+    "diagram": null,
+    "practice": "i-wall-kick"
+  },
+  {
+    "id": "spin-t-floor",
+    "title": "T-Piece Floor Kick",
+    "category": "spin",
+    "difficulty": "Intermediate",
+    "summary": "Rotate a grounded T when the normal rotation collides with the floor.",
+    "when": "Learn how kicks can lift a piece before returning to a landing position.",
+    "steps": [
+      "Bring T to the floor in the exercise’s starting orientation.",
+      "Rotate through the blocked orientation so SRS searches its kick offsets.",
+      "Observe the lift or shift, then finish in the target cells."
+    ],
+    "tips": [
+      "A floor kick is not automatically a scored T-spin.",
+      "Three occupied corners and the final rotation still matter for spin scoring."
+    ],
+    "source": "https://www.tetris.wiki/SRS",
+    "diagram": null,
+    "practice": "t-floor-kick"
+  },
+  {
+    "id": "spin-j-l-tucks",
+    "title": "J and L Tucks",
+    "category": "spin",
+    "difficulty": "Intermediate",
+    "summary": "Rotate a hook beneath an overhang instead of dropping it straight down.",
+    "when": "Useful for repairing a small cavity or solving a perfect-clear region.",
+    "steps": [
+      "Turn J toward the opening and lower it beside the overhang.",
+      "Rotate back into the horizontal cavity; L uses the mirrored route.",
+      "Finish in the target footprint before locking."
+    ],
+    "tips": [
+      "These are movement techniques; bostris awards special spin scoring only to T.",
+      "A J route cannot be copied to L without mirroring the rotations and geometry."
+    ],
+    "source": "https://harddrop.com/wiki/Perfect_Clear_Opener",
+    "diagram": null,
+    "practice": "j-tuck"
+  },
+  {
+    "id": "t-spin-double-mirror",
+    "title": "T-Spin Double · Mirrored",
+    "category": "spin",
+    "difficulty": "Intermediate",
+    "summary": "Fill a T-shaped cavity to clear two rows with a recognized rotation.",
+    "when": "Use the same slot recognition when the overhang faces the other way.",
+    "steps": [
+      "Identify the two nearly complete rows and the mirrored T-shaped cavity.",
+      "The T starts vertically at the entrance, with its arm pointing left.",
+      "Rotate counterclockwise once to fit the outline.",
+      "Hard drop immediately without shifting or lowering the T after rotating."
+    ],
+    "tips": [
+      "Clockwise and counterclockwise are not interchangeable inside a tight slot.",
+      "Look at the front corners of the final T to recognize a full spin."
+    ],
+    "source": "https://www.tetris.wiki/T-Spin",
+    "diagram": null,
+    "practice": "t-spin-double-mirror"
+  },
+  {
+    "id": "l-tuck",
+    "title": "L-Piece Tuck",
+    "category": "spin",
+    "difficulty": "Intermediate",
+    "summary": "Rotate an L under an overhang. This is a placement technique; the game awards spin scoring only to T pieces.",
+    "when": "Useful when a block overhang prevents a straight drop into an L-shaped space.",
+    "steps": [
+      "Notice the roof above the outlined placement.",
+      "The L starts vertically beside the opening.",
+      "Rotate counterclockwise once to tuck its arm under the roof.",
+      "Hard drop to lock in the outline."
+    ],
+    "tips": [
+      "This is the mirror of the J tuck.",
+      "A successful tuck does not earn a T-spin scoring bonus."
+    ],
+    "source": "https://harddrop.com/wiki/Perfect_Clear_Opener",
+    "diagram": null,
+    "practice": "l-tuck"
+  }
+]

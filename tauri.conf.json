@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "bostris",
+  "version": "0.1.0",
+  "identifier": "com.boseriko.bostris",
+  "build": { "frontendDist": "frontend" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{
+      "title": "bostris",
+      "width": 1152,
+      "height": 828,
+      "minWidth": 720,
+      "minHeight": 480,
+      "backgroundColor": "#f2f0e9"
+    }],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; media-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Game",
+    "shortDescription": "Falling-block puzzle game with Marathon and Versus AI",
+    "icon": ["icons/icon.png", "icons/icon.icns", "icons/icon.ico"]
+  }
+}

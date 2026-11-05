@@ -1,7 +1,8 @@
 # bostris
 
-A fast, polished falling-block puzzle game for the terminal, written in Rust with
-[Ratatui](https://ratatui.rs) and [Crossterm](https://github.com/crossterm-rs/crossterm).
+A fast, polished falling-block puzzle game for the desktop, built with Rust and
+[Tauri 2](https://v2.tauri.app), with a graphical board, mouse-friendly menus, and
+a dedicated settings panel. Gameplay and persistence run in Rust.
 
 - Standard 10×20 field with all seven tetrominoes
 - Super Rotation System (SRS) with full wall and floor kicks, plus 180° spins (SRS+ kicks)
@@ -13,28 +14,36 @@ A fast, polished falling-block puzzle game for the terminal, written in Rust wit
 - In-game settings screen for keys, DAS, ARR and more
 - Finesse tracking with an optional retry-on-fault training mode
 - Persistent top-ten high scores
-- True color, 256-color and 16-color palettes
-- Layout that scales up on large terminals and degrades gracefully on small ones
-- Near-zero CPU use when idle, a few megabytes of memory
+- Colored graphical pieces, hold and next previews, and live match statistics
+- Layout that scales with the window and pauses when it becomes too small
+- Rendering stops while idle; precise key press and release handling
+- Looping 8-bit background music with a saved mute preference
+- Learn library with 14 openers and 10 spin, kick, and tuck lessons
 
 ## Installation
 
-Requires a recent stable Rust toolchain (edition 2024).
+Requires a recent stable Rust toolchain (edition 2024), Node.js with npm, and the
+[Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+On macOS, install Xcode Command Line Tools. Linux needs WebKitGTK 4.1 and the other
+packages listed by Tauri; Windows needs Microsoft C++ Build Tools and WebView2.
 
 ```sh
-git clone <repository-url> bostris
-cd bostris
-cargo install --path .
+npm install
+npm run dev
 ```
 
-Or build a standalone executable without installing:
+Build a native application and installer for your current platform:
 
 ```sh
-cargo build --release
-./target/release/bostris
+npm run build
 ```
 
-The binary has no runtime dependencies and runs on macOS, Linux and Windows.
+Bundles are written to `target/release/bundle/` (including `bostris.app` and a DMG
+on macOS). Desktop assets are bundled locally and need no web server or network
+connection at runtime. This is a desktop application controlled with a keyboard.
+
+Music begins after your first click or key press. Use the music-note button in the
+header to mute or enable it. Music pauses when the window loses focus.
 
 ## Controls
 
@@ -54,7 +63,7 @@ The binary has no runtime dependencies and runs on macOS, Linux and Windows.
 
 On the title screen, use ↑/↓ to choose **Marathon** or **Versus AI**, ←/→ to pick the
 bot's level, and Enter (or Space) to start. The game pauses automatically when the
-terminal loses focus or becomes too small. From the pause screen, Backspace returns to
+window loses focus or becomes too small. From the pause screen, Backspace returns to
 the title; from a game-over screen, P/Esc does.
 
 ## Gameplay
@@ -133,6 +142,25 @@ To re-measure the levels:
 cargo test --release benchmark_levels -- --ignored --nocapture
 ```
 
+## Learn mode
+
+Choose **Openers & spin lab** on the title screen to browse the lesson library.
+Search or filter by openers and spins, then select a lesson for its setup, steps,
+tips, and technique source.
+
+- **Build first bag** guides the TKI Castle Top, Albatross, and Stickspin opening
+  stages. Follow the fixed queue and place each piece in its outline. Completion
+  checks this first-bag build, rather than the entire opener and its continuations.
+- **Start challenge** loads a preset spin, kick, or tuck. Follow the hint, rotate
+  into the target, and hard drop. Success uses the real rotation and scoring rules.
+- **Free practice** opens an ungraded board for other openers. The T-Spin Triple
+  lesson is a reference lesson without a preset challenge.
+
+Practice has no passive gravity or automatic locking. Hold Down to lower a piece;
+Space locks it. Hold is disabled in guided builds and preset challenges. Retry
+restores the exercise. Practice scores are kept separate from Marathon high scores.
+Non-T tucks and kicks are placement techniques, not additional spin scoring bonuses.
+
 ## Settings
 
 Press **S** on the title, pause or game-over screen (or during play, which pauses) to
@@ -164,15 +192,14 @@ input instead of two rotations.
 Turn on **Retry on fault** in settings to practise: a placement with extra inputs does
 not lock; the same piece respawns at the top so you can place it again.
 
-Finesse counting is exact in terminals that report key releases (see below). In other
-terminals, a held key is detected from its auto-repeat, so two very quick taps in the
-same direction may be counted as one.
+Finesse counting uses native key press and release events, so separate taps and held
+keys are distinguished.
 
 ## Configuration
 
 A commented default configuration file is created on first launch, and the settings
-screen rewrites it when you change something. Run
-`bostris --help` to print its exact path:
+screen rewrites it when you change something. Existing configuration and high-score
+files from the terminal version are reused:
 
 | Platform | Config file                                              |
 | -------- | -------------------------------------------------------- |
@@ -195,7 +222,7 @@ finesse_retry = false  # retry pieces placed with extra inputs
 finesse_180 = false    # count 180 degree spins when judging finesse
 
 [display]
-color_mode = "auto"    # auto, truecolor, 256, 16
+color_mode = "auto"    # auto (truecolor), truecolor, 256, 16
 
 [versus]
 bot_level = "A+"       # D, C, B, A, A+, S or X
@@ -220,21 +247,14 @@ Key names: `Left`, `Right`, `Up`, `Down`, `Space`, `Esc`, `Enter`, `Tab`, `Backs
 character. Letters are case-insensitive.
 
 Missing settings use their defaults. Out-of-range values are clamped and unknown keys
-are ignored, and any problems are reported on stderr after the game exits. A file that
-cannot be parsed falls back to the defaults entirely.
+are ignored. A file that cannot be parsed falls back to the defaults entirely.
+Configuration warnings and save errors are displayed below the game.
 
 ### DAS, ARR and key release events
 
-Precise DAS/ARR and held soft drop need the terminal to report key releases. bostris
-enables the kitty keyboard protocol when the terminal supports it (kitty, WezTerm,
-Ghostty, foot, Alacritty, recent iTerm2) and always has release events on Windows.
-In other terminals, holding a key relies on the terminal's own key repeat, so
-horizontal auto-repeat follows your system keyboard repeat settings, and pressing
-another key (for example rotating while holding →) stops the repeat. The settings
-screen warns when this is the case.
-
-**tmux** does not forward key release events, even when the outer terminal supports
-them. Run bostris directly in the terminal, outside tmux, for proper key holds.
+The desktop window reports key presses and releases directly. DAS/ARR and held soft
+drop work independently of system keyboard repeat settings. Switching away from the
+window pauses the game and releases held inputs; press P or Esc to resume.
 
 ## High scores
 
@@ -249,7 +269,7 @@ writes are atomic.
 cargo fmt
 cargo clippy --all-targets -- -D warnings
 cargo test
-cargo build --release
+npm run build
 ```
 
 | Module          | Responsibility                                   |
@@ -265,10 +285,20 @@ cargo build --release
 | `settings`      | Settings menu model and key rebinding            |
 | `config`        | Configuration parsing and validation             |
 | `highscores`    | High-score persistence                           |
-| `ui`            | Ratatui rendering and responsive layout          |
-| `app`           | Fixed-timestep loop and event handling           |
+| `ui`            | Graphical game snapshots and settings models     |
+| `app`           | Fixed-timestep simulation and event handling     |
+| `desktop`       | Tauri commands, window events and game updates   |
+| `training`      | Lesson catalog, preset boards and completion     |
+| `frontend/`     | Graphical interface, mouse and keyboard input    |
 
-Game logic has no dependency on the terminal and is covered by unit tests.
-The simulation runs at a fixed 60 Hz timestep on a monotonic clock, rendering
-happens only when the game state changes (capped at 60 FPS), and the loop blocks
-on input whenever the game is paused, over or waiting to start.
+Game logic has no dependency on the window and is covered by unit tests.
+The simulation runs at a fixed 60 Hz timestep on a monotonic clock with bounded
+catch-up. The frontend requests frames while playing and on input or resize;
+unchanged snapshots are not sent again. No frontend framework or bundler is required.
+
+
+## Music credit
+
+[Title Theme (8-Bit Style)](https://opengameart.org/content/title-theme-8-bit-style)
+by Kat, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+The original WAV is bundled unchanged; playback uses reduced volume and looping.

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>bostris</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="music.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <a class="brand" href="#" aria-label="bostris home" data-action="title"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>bostris<span class="brand-dot">.</span></a>
+        <div class="header-right"><button class="icon-button music-button" id="music-button" type="button" aria-label="Mute music" aria-pressed="true" title="Music on · click to mute"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M9 18V6l11-2v12M9 9l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2.5"/><ellipse cx="17" cy="16" rx="3" ry="2.5"/></svg></button><button class="icon-button" id="settings-button" data-action="settings" aria-label="Open settings" title="Settings (S)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M9.3 3h5.4l.6 2.3 2 .9 2.1-.7 2.7 4.6-1.7 1.6v2.5l1.7 1.6-2.7 4.6-2.1-.7-2 .9-.6 2.3H9.3l-.6-2.3-2-.9-2.1.7-2.7-4.6 1.7-1.6v-2.5L1.9 10l2.7-4.6 2.1.7 2-.9L9.3 3Z" transform="translate(1 0) scale(.92)"/><circle cx="12" cy="12" r="3.2"/></svg></button></div>
+      </header>
+      <main id="main" tabindex="-1">
+        <section id="title-screen" class="title-screen" hidden>
+          <div class="title-content">
+            <h1>Play</h1>
+            <div class="mode-options" role="group" aria-label="Game mode">
+              <button class="mode-option" data-action="select-mode" data-index="0" aria-pressed="true"><span class="mode-symbol" aria-hidden="true">↗</span><span><strong>Marathon</strong></span><span class="mode-check" aria-hidden="true"></span></button>
+              <button class="mode-option" data-action="select-mode" data-index="1" aria-pressed="false"><span class="mode-symbol" aria-hidden="true">⇄</span><span><strong>Versus AI</strong></span><span class="mode-check" aria-hidden="true"></span></button>
+            </div>
+            <div id="difficulty" class="difficulty" hidden><span>Opponent level</span><div class="stepper"><button data-action="level" data-delta="-1" aria-label="Easier opponent">−</button><strong id="bot-level">A+</strong><button data-action="level" data-delta="1" aria-label="Harder opponent">+</button></div></div>
+            <button class="primary-button start-button" data-action="start">Play <span aria-hidden="true">↗</span></button>
+            <button class="learn-entry" data-action="learn"><span class="learn-entry-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5c3-1 6-.5 9 1.5C15 4.5 18 4 21 5v15c-3-1-6-.5-9 1.5C9 19.5 6 19 3 20V5Z"/><path d="M12 6.5v15M6 9h3M15 9h3M6 12h3M15 12h3"/></svg></span><span><strong>Learn</strong></span><span aria-hidden="true">↗</span></button>
+            <p class="start-hint" id="start-hint" hidden></p><button class="text-button records-button" id="show-records">Scores <span aria-hidden="true">↗</span></button>
+          </div>
+          <div class="title-art" aria-hidden="true"><canvas id="demo-board" class="demo-board"></canvas><div class="personal-best"><span>BEST</span><strong id="title-best">0</strong></div></div>
+        </section>
+        <section id="learn-screen" class="learn-screen" hidden>
+          <div class="learn-heading"><div><h1>Learn</h1></div><button class="secondary-button" data-action="title">Menu <span aria-hidden="true">↗</span></button></div>
+          <div class="learn-workspace">
+            <aside class="lesson-library" aria-label="Lesson library">
+              <label class="lesson-search"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg><input id="lesson-search" type="search" placeholder="Search lessons" aria-label="Search lessons" autocomplete="off" spellcheck="false"></label>
+              <div class="lesson-filters" role="group" aria-label="Filter lessons"><button data-lesson-filter="all" aria-pressed="true">All</button><button data-lesson-filter="opener" aria-pressed="false">Openers</button><button data-lesson-filter="spin" aria-pressed="false">Spin lab</button></div>
+              <p id="lesson-count" class="lesson-count" role="status"></p>
+              <div id="lesson-list" class="lesson-list"></div>
+              <p id="lesson-empty" class="lesson-empty" hidden>No lessons found.</p>
+            </aside>
+            <article id="lesson-detail" class="lesson-detail" aria-labelledby="lesson-title">
+              <div class="lesson-meta"><span id="lesson-category">OPENER</span><span id="lesson-difficulty">Beginner</span></div>
+              <h2 id="lesson-title">Lesson</h2><p id="lesson-summary" class="lesson-summary"></p>
+              <div class="lesson-detail-grid"><section class="lesson-instructions lesson-steps-section"><h3>Steps</h3><ol id="lesson-steps" class="lesson-steps"></ol></section><aside id="lesson-diagram-panel" class="lesson-diagram-panel" hidden><div id="lesson-diagram" class="lesson-diagram"></div><p>Example</p></aside></div>
+              <details id="lesson-more" class="lesson-more"><summary>Details</summary><section class="lesson-when"><h3>When to use it</h3><p id="lesson-when"></p></section><section id="lesson-tips-section" class="lesson-tips-section"><h3>Tips</h3><ul id="lesson-tips"></ul></section><div class="lesson-source"><span>SOURCE</span><p id="lesson-source"></p></div></details>
+              <div class="lesson-practice-bar"><p id="lesson-practice-note"></p><button id="lesson-practice" class="primary-button" data-action="practice">Start challenge <span aria-hidden="true">↗</span></button></div>
+            </article>
+          </div>
+        </section>
+        <section id="play-screen" class="play-screen" hidden>
+          <div class="game-topline"><div><span class="eyebrow" id="game-mode">MARATHON</span><h1 id="game-heading">Marathon</h1></div><div class="game-topline-actions"><button id="training-library-button" class="secondary-button" data-action="learn" hidden>Lessons</button><button class="secondary-button pause-button" data-action="pause" aria-label="Pause game"><span aria-hidden="true">Ⅱ</span> Pause <kbd id="pause-key">Esc</kbd></button></div></div>
+          <div id="arena" class="arena">
+            <aside class="game-sidebar left-sidebar"><section class="hold-section"><h2>HOLD <kbd id="hold-key">C</kbd></h2><div id="hold-preview" class="piece-preview hold-preview"></div></section><dl class="score-stats"><div class="main-score"><dt>SCORE</dt><dd id="score">0</dd></div><div id="best-stat"><dt>BEST</dt><dd id="best">0</dd></div><div class="stats-divider"></div><div id="level-stat"><dt>LEVEL</dt><dd id="level">1</dd></div><div><dt>LINES</dt><dd id="lines">0</dd></div><div><dt>TIME</dt><dd id="time">0:00</dd></div><div><dt>FINESSE</dt><dd id="finesse">100%</dd></div><div id="attempt-stat" hidden><dt>ATTEMPT</dt><dd id="attempts">1</dd></div><div id="attack-stat" hidden><dt>SENT</dt><dd id="attack">0</dd></div></dl></aside>
+            <div class="board-column player-column"><div class="board-label"><span>YOU</span></div><div class="well-wrap"><canvas id="player-board" class="board" role="img" aria-label="Your game board"></canvas><div id="garbage-meter" class="garbage-meter" aria-label="Incoming garbage" hidden><i></i></div><div id="game-toast" class="game-toast" role="status" hidden></div><div id="game-overlay" class="game-overlay" hidden><div class="overlay-content"><h2 id="overlay-title">Paused</h2><p id="overlay-description" hidden></p><div id="result-stats" class="result-stats" hidden><span>SCORE</span><strong id="result-score">0</strong></div><button id="overlay-primary" class="primary-button" data-action="resume">Resume <span aria-hidden="true">↗</span></button><button class="overlay-secondary" id="overlay-secondary" data-action="restart">Restart</button><button class="text-button" id="overlay-tertiary" data-action="title">Menu</button></div></div></div><div class="board-footer"><span>10 × 20</span><span id="piece-count">0 PIECES</span></div></div>
+            <div id="opponent-column" class="board-column opponent-column" hidden><div class="board-label"><span>OPPONENT</span><span id="opponent-level">LEVEL A+</span></div><canvas id="opponent-board" class="board" role="img" aria-label="Opponent game board"></canvas><div class="board-footer"><span id="opponent-lines">0 LINES</span><span id="opponent-attack">0 SENT</span></div></div>
+            <aside class="game-sidebar next-sidebar"><h2>UP NEXT</h2><div id="next-previews" class="next-previews"></div><section id="training-panel" class="training-panel" hidden><div id="training-progress" class="training-progress" hidden><span>PLACEMENTS</span><strong id="training-progress-count">0 / 7</strong><progress id="training-progress-meter" value="0" max="7" aria-label="Correct placements"></progress></div><div class="training-hint"><p id="training-hint"></p></div><p id="training-target-note" class="training-target-note" hidden><i aria-hidden="true"></i> Target</p><details class="training-steps"><summary>Instructions</summary><ol id="training-steps"></ol></details><p id="training-sandbox-note" class="training-sandbox-note" hidden>Ungraded practice.</p><div class="training-actions"><button class="secondary-button" data-action="retry-lesson">Reset <span aria-hidden="true">↻</span></button><button class="text-button" data-action="learn">Lessons</button></div></section></aside>
+          </div>
+        </section>
+        <section id="settings-screen" class="settings-screen" hidden><div class="settings-heading"><div><h1>Settings</h1></div><button class="primary-button done-button" data-action="close-settings">Done <span aria-hidden="true">✓</span></button></div><div id="capture-banner" class="capture-banner" role="status" hidden></div><div id="settings-status" class="settings-status" role="status" hidden></div><div class="settings-scroll"><div id="settings-items"></div></div><div class="settings-footer"><span>Saved on Done.</span><button class="text-button" data-action="reset-settings">Reset defaults</button></div></section>
+      </main>
+      <footer class="app-footer"><div id="key-hints" class="key-hints"><span><kbd>↑</kbd><kbd>↓</kbd> choose</span><span><kbd>Enter</kbd> play</span><span><kbd>S</kbd> settings</span></div></footer>
+    </div>
+    <dialog id="records" class="records-dialog" aria-labelledby="records-heading"><div class="records-heading"><div><h2 id="records-heading">Scores</h2></div><button class="icon-button" id="close-records" aria-label="Close high scores">×</button></div><p id="records-empty">No scores yet.</p><div class="records-table-wrap"><table id="records-table"><thead><tr><th scope="col">RANK</th><th scope="col">SCORE</th><th scope="col">LINES</th><th scope="col">LEVEL</th></tr></thead><tbody id="records-body"></tbody></table></div></dialog>
+    <div id="status" class="save-status" role="status" aria-live="polite" hidden></div>
+    <section id="failure" class="failure" role="alert" hidden><div><h1>Connection error</h1><p id="failure-message"></p><button id="retry" class="primary-button" type="button">Reconnect <span aria-hidden="true">↗</span></button></div></section>
+  </body>
+</html>

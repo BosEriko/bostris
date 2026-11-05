@@ -2,15 +2,20 @@
 name = "bostris"
 version = "0.1.0"
 edition = "2024"
-description = "A fast, polished Tetris for the terminal"
+description = "A fast, polished falling-block puzzle game for the desktop"
 license = "MIT"
 readme = "README.md"
 
 [dependencies]
 dirs = "7"
-ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+crossterm = "0.29"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml = "1"
+tauri = { version = "2", features = [] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
 
 [profile.dev]
 opt-level = 1

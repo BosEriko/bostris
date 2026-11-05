@@ -95,6 +95,15 @@ pub struct Toast {
     pub age: Duration,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlacementResult {
+    pub piece: Piece,
+    pub spin: Spin,
+    pub lines: u32,
+    pub rotations: u32,
+    pub kicks: u32,
+}
+
 #[derive(Clone, Debug)]
 pub struct Game {
     settings: Settings,
@@ -124,6 +133,10 @@ pub struct Game {
     attack_total: u32,
     gravity_level: Option<u32>,
     revision: u64,
+    practice_queue: Option<VecDeque<Kind>>,
+    last_placement: Option<PlacementResult>,
+    rotations: u32,
+    kicks_used: u32,
 }
 
 impl Game {
@@ -160,9 +173,58 @@ impl Game {
             attack_total: 0,
             gravity_level: None,
             revision: 0,
+            practice_queue: None,
+            last_placement: None,
+            rotations: 0,
+            kicks_used: 0,
         };
         game.spawn(first);
         game
+    }
+
+    pub fn practice(mut settings: Settings, board: Board, active: Piece) -> Self {
+        settings.finesse_retry = false;
+        settings.line_clear_delay = Duration::ZERO;
+        let mut game = Self::new(settings, Rng::new(0xB057_215));
+        game.board = board;
+        game.active = active;
+        game.lowest_y = active.y;
+        game.phase = Phase::Falling;
+        game.spin_kick = None;
+        game.rotations = 0;
+        game.kicks_used = 0;
+        game.touch();
+        game
+    }
+
+    pub fn set_practice_queue(&mut self, queue: Vec<Kind>) {
+        self.practice_queue = Some(queue.into());
+        self.touch();
+    }
+
+    pub fn last_placement(&self) -> Option<PlacementResult> {
+        self.last_placement
+    }
+
+    pub fn practice_tick(&mut self, dt: Duration) {
+        if self.phase != Phase::Falling {
+            return;
+        }
+        let previous_second = self.elapsed.as_secs();
+        self.elapsed += dt;
+        if self.elapsed.as_secs() != previous_second {
+            self.touch();
+        }
+        if self.soft_drop {
+            let accumulated = self.gravity_acc + 20.0 * dt.as_secs_f64();
+            let steps = accumulated.floor() as u32;
+            for _ in 0..steps.min(20) {
+                if !self.soft_drop_step() {
+                    break;
+                }
+            }
+            self.gravity_acc = accumulated.fract();
+        }
     }
 
     pub fn board(&self) -> &Board {
@@ -187,7 +249,14 @@ impl Game {
     }
 
     pub fn preview(&self) -> impl Iterator<Item = Kind> + '_ {
-        self.randomizer.preview()
+        self.practice_queue
+            .iter()
+            .flat_map(|queue| queue.iter().copied())
+            .chain(
+                self.randomizer
+                    .preview()
+                    .filter(|_| self.practice_queue.is_none()),
+            )
     }
 
     pub fn scoring(&self) -> &Scoring {
@@ -302,6 +371,8 @@ impl Game {
         self.spawns = self.spawns.wrapping_add(1);
         self.drop_points = 0;
         self.spin_kick = None;
+        self.rotations = 0;
+        self.kicks_used = 0;
         self.phase = if self.board.collides(&self.active) {
             Phase::Over
         } else {
@@ -311,7 +382,11 @@ impl Game {
     }
 
     fn spawn_next(&mut self) {
-        let kind = self.randomizer.next();
+        let kind = self
+            .practice_queue
+            .as_mut()
+            .and_then(VecDeque::pop_front)
+            .unwrap_or_else(|| self.randomizer.next());
         self.spawn(kind);
     }
 
@@ -370,6 +445,8 @@ impl Game {
             if !self.board.collides(&candidate) {
                 self.place(candidate);
                 self.spin_kick = Some(quarter && index == 4);
+                self.rotations += 1;
+                self.kicks_used += u32::from(index > 0);
                 return true;
             }
         }
@@ -485,6 +562,13 @@ impl Game {
             after.clear_rows(rows);
             after.is_empty()
         };
+        self.last_placement = Some(PlacementResult {
+            piece: self.active,
+            spin,
+            lines: rows.count_ones(),
+            rotations: self.rotations,
+            kicks: self.kicks_used,
+        });
         let clear = Clear {
             lines: rows.count_ones(),
             spin,

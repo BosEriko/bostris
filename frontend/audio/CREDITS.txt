@@ -1,0 +1,9 @@
+Title Theme (8-Bit Style)
+Creator: Kat
+Source: https://opengameart.org/content/title-theme-8-bit-style
+Audio: https://opengameart.org/sites/default/files/MenuTheme.wav
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+
+The original audio file is included unchanged as menu-theme.wav.
+Playback volume and looping are controlled by bostris.

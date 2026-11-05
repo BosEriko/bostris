@@ -1,7 +1,7 @@
 use std::fmt::Write;
 use std::time::Duration;
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::config::{
     ARR_MS, ColorMode, Config, DAS_MS, LINE_CLEAR_MS, LOCK_DELAY_MS, MAX_LOCK_RESETS,
@@ -63,7 +63,7 @@ impl Field {
             Field::Finesse180 => "Count a 180° spin as one input when judging finesse",
             Field::Preview => "Upcoming pieces shown in the queue",
             Field::Ghost => "Show where the piece will land",
-            Field::Colors => "Color palette (auto detects your terminal)",
+            Field::Colors => "Color palette (auto uses true color)",
         }
     }
 }
@@ -159,6 +159,14 @@ impl SettingsMenu {
 
     pub fn into_config(self) -> Config {
         self.config
+    }
+
+    pub fn select(&mut self, index: usize) -> bool {
+        if self.capture.is_some() || !ITEMS.get(index).copied().is_some_and(Self::selectable) {
+            return false;
+        }
+        self.cursor = index;
+        true
     }
 
     pub fn cursor(&self) -> usize {
@@ -393,7 +401,7 @@ impl SettingsMenu {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::crossterm::event::{KeyEventKind, KeyModifiers};
+    use crossterm::event::{KeyEventKind, KeyModifiers};
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Press)

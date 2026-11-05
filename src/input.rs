@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Action {
@@ -366,7 +366,7 @@ impl AutoShift {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::crossterm::event::KeyEventKind;
+    use crossterm::event::KeyEventKind;
 
     const TICK: Duration = Duration::from_millis(10);
 
